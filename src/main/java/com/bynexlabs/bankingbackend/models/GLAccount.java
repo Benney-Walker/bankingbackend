@@ -4,7 +4,7 @@ import com.bynexlabs.bankingbackend.enums.GL_Category;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 
 @Getter
 @Setter
@@ -34,5 +34,5 @@ public class GLAccount {
     private boolean isActive;
 
     @Column(name = "created_at")
-    private OffsetDateTime createdAt;
+    private LocalDateTime createdAt;
 }

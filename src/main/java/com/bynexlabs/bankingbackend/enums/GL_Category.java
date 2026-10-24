@@ -1,4 +1,4 @@
-package com.bynexlabs.bankingbackend.constant;
+package com.bynexlabs.bankingbackend.enums;
 
 public enum GL_Category {
     ASSET,

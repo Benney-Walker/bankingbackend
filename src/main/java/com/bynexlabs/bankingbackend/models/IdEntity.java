@@ -1,6 +1,6 @@
 package com.bynexlabs.bankingbackend.models;
 
-import com.bynexlabs.bankingbackend.constant.Id_Type;
+import com.bynexlabs.bankingbackend.enums.Id_Type;
 import jakarta.persistence.*;
 import lombok.*;
 

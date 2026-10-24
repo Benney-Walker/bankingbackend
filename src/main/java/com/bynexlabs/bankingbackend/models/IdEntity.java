@@ -2,7 +2,13 @@ package com.bynexlabs.bankingbackend.models;
 
 import com.bynexlabs.bankingbackend.constant.Id_Type;
 import jakarta.persistence.*;
+import lombok.*;
 
+@Getter
+@Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "id_entity")
 public class IdEntity {

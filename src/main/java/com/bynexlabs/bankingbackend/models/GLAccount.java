@@ -1,6 +1,6 @@
 package com.bynexlabs.bankingbackend.models;
 
-import com.bynexlabs.bankingbackend.constant.GL_Category;
+import com.bynexlabs.bankingbackend.enums.GL_Category;
 import jakarta.persistence.*;
 import lombok.*;
 

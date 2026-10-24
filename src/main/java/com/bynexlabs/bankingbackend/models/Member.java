@@ -4,6 +4,8 @@ import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -30,7 +32,7 @@ public class Member {
     private String lastName;
 
     @Column(name = "date_of_birth", nullable = false)
-    private OffsetDateTime dateOfBirth;
+    private LocalDate dateOfBirth;
 
     @Column(name = "phone_number", nullable = false, length = 30)
     private String phoneNumber;
@@ -49,8 +51,8 @@ public class Member {
     private MembershipStatus membershipStatus;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private OffsetDateTime createdAt;
+    private LocalDateTime createdAt;
 
     @Column(name = "updated_at", nullable = false)
-    private OffsetDateTime updatedAt;
+    private LocalDateTime updatedAt;
 }

@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -39,10 +40,10 @@ public class LoanAccount {
     private Integer termMonths;
 
     @Column(name = "disbursement_date", nullable = false)
-    private OffsetDateTime disbursementDate;
+    private LocalDate disbursementDate;
 
     @Column(name = "maturity_date", nullable = false)
-    private OffsetDateTime maturityDate;
+    private LocalDate maturityDate;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)

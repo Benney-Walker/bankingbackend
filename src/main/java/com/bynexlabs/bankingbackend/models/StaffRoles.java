@@ -20,7 +20,7 @@ public class StaffRoles {
 
     @ManyToOne
     @JoinColumn(name = "staff_id")
-    private Staffs staff;
+    private Staff staff;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false)

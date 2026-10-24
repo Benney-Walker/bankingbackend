@@ -15,7 +15,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @Entity
 @Table(name = "staffs")
-public class Staffs {
+public class Staff {
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)

@@ -1,0 +1,10 @@
+package com.bynexlabs.bankingbackend.Repository;
+
+import com.bynexlabs.bankingbackend.models.Staff;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface StaffRepo extends JpaRepository<Staff, Long> {
+
+}

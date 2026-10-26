@@ -1,0 +1,2 @@
+ALTER TABLE staffs
+ADD COLUMN password VARCHAR(255) NOT NULL;

@@ -40,8 +40,11 @@ public class Staff {
     @Column(name = "phone_number", length = 30)
     private String phoneNumber;
 
-    @Column(name = "email", length = 255)
+    @Column(name = "email")
     private String email;
+
+    @Column(name = "password")
+    private String password;
 
     @Column(name = "residential_address", columnDefinition = "TEXT")
     private String residentialAddress;

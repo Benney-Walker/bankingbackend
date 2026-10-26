@@ -23,5 +23,5 @@ public class IdEntity {
     private Id_Type idType;
 
     @Column(name = "id_code", nullable = false)
-    private String idCode;
+    private long idCode;
 }

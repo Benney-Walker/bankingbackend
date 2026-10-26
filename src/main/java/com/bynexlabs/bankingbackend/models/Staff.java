@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.models;
 
+import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -45,8 +46,9 @@ public class Staff {
     @Column(name = "residential_address", columnDefinition = "TEXT")
     private String residentialAddress;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "staff_status", length = 20)
-    private String staffStatus;
+    private StaffStatus staffStatus;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;

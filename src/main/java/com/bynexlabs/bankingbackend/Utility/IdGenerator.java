@@ -4,8 +4,9 @@ import com.bynexlabs.bankingbackend.Repository.IdEntityRepo;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.models.IdEntity;
 import lombok.RequiredArgsConstructor;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.stereotype.Component;
 
+@Component
 @RequiredArgsConstructor
 public class IdGenerator {
 
@@ -16,10 +17,40 @@ public class IdGenerator {
     private final long EQUITY = 3000;
     private final long REVENUE = 4000;
     private final long EXPENSES = 5000;
-    private final long ACCOUNT_NUMBER = 100200;
+    private final long MEMBER_ACCOUNT = 100200;
     private final long STAFF_ID = 900100;
 
-    private long getEntityId(Id_Type idType, long entityCode) {
+    public String getRecordId(Id_Type idType) {
+        String newCode = "";
+
+        switch (idType) {
+            case ASSET -> {
+                newCode = String.valueOf(getEntityCode(idType, ASSETS));
+            }
+            case LIABILITY ->  {
+                newCode = String.valueOf(getEntityCode(idType, LIABILITY));
+            }
+            case EQUITY -> {
+                newCode = String.valueOf(getEntityCode(idType, EQUITY));
+            }
+            case REVENUE ->  {
+                newCode = String.valueOf(getEntityCode(idType, REVENUE));
+            }
+            case EXPENSE ->  {
+                newCode = String.valueOf(getEntityCode(idType, EXPENSES));
+            }
+            case STAFF_ID ->  {
+                newCode = String.valueOf(getEntityCode(idType, STAFF_ID));
+            }
+            case MEMBER_ACCOUNT -> {
+                newCode = String.valueOf(getEntityCode(idType, MEMBER_ACCOUNT));
+            }
+        }
+
+        return newCode;
+    }
+
+    private long getEntityCode(Id_Type idType, long entityCode) {
         try {
             IdEntity idEntity = idEntityRepo.findByIdType(idType).orElse(null);
             if (idEntity == null) {
@@ -28,9 +59,12 @@ public class IdGenerator {
                         .idCode(entityCode)
                         .build();
             }
-
+            long code = idEntity.getIdCode();
+            idEntity.setIdCode(code + 1);
+            idEntityRepo.save(idEntity);
+            return code;
         } catch (Exception e) {
-            return null;
+            throw new RuntimeException("Error: " + e);
         }
     }
 

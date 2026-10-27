@@ -20,7 +20,7 @@ public class IdGenerator {
     private final long MEMBER_ACCOUNT = 100200;
     private final long STAFF_ID = 900100;
 
-    public String getRecordId(Id_Type idType) {
+    public String generateId(Id_Type idType) {
         String newCode = "";
 
         switch (idType) {

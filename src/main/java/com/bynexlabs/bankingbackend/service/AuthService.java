@@ -1,24 +1,26 @@
 package com.bynexlabs.bankingbackend.service;
 
-import com.bynexlabs.bankingbackend.Repository.StaffRepo;
+import com.bynexlabs.bankingbackend.DTO.auth.LoginRequest;
+import com.bynexlabs.bankingbackend.DTO.auth.LoginResponse;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
+import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final StaffRepo staffRepo;
+    private final StaffService staffService;
 
     private final JwtUtility jwtUtility;
+
+    private final AuthenticationManager authenticationManager;
 
     public ResponseEntity<?> staffAuthentication(LoginRequest loginRequest) {
 
@@ -29,16 +31,10 @@ public class AuthService {
                 )
         );
 
-        Staffs staff = staffService.getStaffDetails(loginRequest.getStaffId());
+        Staff staff = staffService.getStaffDetails(loginRequest.getStaffId());
 
         List<String> rolesList = staff.getRoles().stream().map(
-                role -> role.getStaffRole().name()).toList();
-        if (rolesList.contains(StaffRoles.GENERAL_STAFF.name()) || staff.getStaffStatus() == StaffStatus.INACTIVE) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
-                    "message", "You are not allowed to access the system! Contact your admin"
-            ));
-        }
-
+                role -> role.getRole().name()).toList();
 
         String accessToken = jwtUtility.generateAccessToken(
                 loginRequest.getStaffId(),
@@ -51,11 +47,8 @@ public class AuthService {
 
         return ResponseEntity.ok(
                 LoginResponse.builder()
-                        .staffName(
-                                staff.getFirstName().toUpperCase() + " " + staff.getLastName().toUpperCase()
-                        )
+                        .staffName(staff.getFirstName().toUpperCase() + " " + staff.getLastName().toUpperCase())
                         .roles(rolesList)
-                        .institutionName(staff.getInstitution().getInstitutionName().toUpperCase())
                         .authToken(accessToken)
                         .refreshToken(refreshToken)
                         .build()

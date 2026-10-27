@@ -60,6 +60,12 @@ public class StaffService {
             ));
         }
 
+        if (staffRepo.existsByPhoneNumber(staffDetails.getPhoneNumber())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "message", "Phone number already exist"
+            ));
+        }
+
         if (staffRepo.existsByEmail(staffDetails.getEmail())) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "message", "Email already exist"

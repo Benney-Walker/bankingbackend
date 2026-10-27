@@ -16,8 +16,6 @@ public class LoginResponse {
 
     private List<String> roles;
 
-    private String institutionName;
-
     private String authToken;
 
     private String refreshToken;

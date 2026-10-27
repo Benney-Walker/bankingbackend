@@ -5,6 +5,7 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
@@ -14,10 +15,13 @@ import java.util.List;
 @Component
 public class JwtUtility {
 
+    @Value("${jwt.secret}")
     private String jwtSecret;
 
+    @Value("${jwt.access-expiration}")
     private long accessExpirationInMs;
 
+    @Value("${jwt.refresh-expiration}")
     private long refreshExpirationInMs;
 
     private static final String TYPE_CLAIM = "type";

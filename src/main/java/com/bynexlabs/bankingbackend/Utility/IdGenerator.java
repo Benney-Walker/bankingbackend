@@ -43,14 +43,14 @@ public class IdGenerator {
                 newCode = String.valueOf(getEntityCode(idType, STAFF_ID));
             }
             case MEMBER_ACCOUNT -> {
-                newCode = String.valueOf(getEntityCode(idType, MEMBER_ACCOUNT));
+                newCode = getEntityCode(idType, MEMBER_ACCOUNT);
             }
         }
 
         return newCode;
     }
 
-    private long getEntityCode(Id_Type idType, long entityCode) {
+    private String getEntityCode(Id_Type idType, long entityCode) {
         try {
             IdEntity idEntity = idEntityRepo.findByIdType(idType).orElse(null);
             if (idEntity == null) {
@@ -59,13 +59,26 @@ public class IdGenerator {
                         .idCode(entityCode)
                         .build();
             }
+            if (idType == Id_Type.MEMBER_ACCOUNT) {
+                String code = String.valueOf(idEntity.getIdCode());
+                idEntity.setIdCode(idEntity.getIdCode() + 1);
+                idEntityRepo.save(idEntity);
+                return generateUniqueAccountNumber(code);
+            }
+
             long code = idEntity.getIdCode();
             idEntity.setIdCode(code + 1);
             idEntityRepo.save(idEntity);
-            return code;
+            return String.valueOf(code);
         } catch (Exception e) {
             throw new RuntimeException("Error: " + e);
         }
+    }
+
+    private String generateUniqueAccountNumber(String code) {
+        long currentMillis = System.currentTimeMillis() % 100000L;
+
+        return code + currentMillis;
     }
 
 }

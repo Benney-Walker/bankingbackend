@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -26,10 +27,6 @@ public class MemberAccount {
     @JoinColumn(name = "member_id")
     private Member member;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "gl_account_id")
-    private GLAccount glAccountId;
-
     @Column(name = "account_number", nullable = false, unique = true, length = 20)
     private String accountNumber;
 
@@ -48,5 +45,5 @@ public class MemberAccount {
     private AccountStatus status;
 
     @Column(name = "created_at", updatable = false)
-    private OffsetDateTime createdAt;
+    private LocalDateTime createdAt;
 }

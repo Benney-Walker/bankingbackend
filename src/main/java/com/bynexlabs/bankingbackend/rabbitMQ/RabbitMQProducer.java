@@ -18,4 +18,12 @@ public class RabbitMQProducer {
                 payload
         );
     }
+
+    public void sendOtherAccountCreationEvent(Object payload) {
+        rabbitTemplate.convertAndSend(
+                RabbitMQConfig.EXCHANGE_NAME,
+                RabbitMQConfig.OTHER_ACCOUNT_CREATION_ROUTING_KEY,
+                payload
+        );
+    }
 }

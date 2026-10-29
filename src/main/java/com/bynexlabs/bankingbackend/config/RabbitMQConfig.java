@@ -3,7 +3,6 @@ package com.bynexlabs.bankingbackend.config;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
@@ -17,12 +16,14 @@ public class RabbitMQConfig {
     /************************************************
                 QUEUES_DECLARATIONS
      *************************************************/
-    public static final String DEFAULT_SHARE_ACCOUNT_QUEUE_NAME = "default_share_account_queue";
+    public static final String DEFAULT_SHARES_ACCOUNT_QUEUE_NAME = "default_share_account_queue";
+    public static final String OTHER_ACCOUNT_CREATION_QUEUE_NAME = "other_account_creation_queue";
 
     /************************************************
      ROUTING
      *************************************************/
     public static final String DEFAULT_SHARE_ACCOUNT_ROUTING_KEY = "default_share_account_routing_key";
+    public static final String OTHER_ACCOUNT_CREATION_ROUTING_KEY = "other_account_creation_routing_key";
 
 
     /************************************************
@@ -30,7 +31,12 @@ public class RabbitMQConfig {
      *************************************************/
     @Bean
     public Queue defaultShareAccountQueue() {
-        return new Queue(DEFAULT_SHARE_ACCOUNT_QUEUE_NAME);
+        return new Queue(DEFAULT_SHARES_ACCOUNT_QUEUE_NAME);
+    }
+
+    @Bean
+    public Queue otherAccountCreationQueue() {
+        return new Queue(OTHER_ACCOUNT_CREATION_QUEUE_NAME);
     }
 
     /************************************************
@@ -39,6 +45,11 @@ public class RabbitMQConfig {
     @Bean
     public Binding defaultShareAccountBinding(Queue defaultShareAccountQueue, TopicExchange exchange) {
         return BindingBuilder.bind(defaultShareAccountQueue).to(exchange).with(DEFAULT_SHARE_ACCOUNT_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding otherAccountCreationBinding(Queue otherAccountCreationQueue, TopicExchange exchange) {
+        return BindingBuilder.bind(otherAccountCreationQueue).to(exchange).with(OTHER_ACCOUNT_CREATION_ROUTING_KEY);
     }
 
     /************************************************

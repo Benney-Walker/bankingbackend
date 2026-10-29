@@ -3,5 +3,6 @@ package com.bynexlabs.bankingbackend.enums;
 public enum KycStatus {
     PENDING,
     VERIFIED,
-    REJECTED
+    REJECTED,
+    MANUAL_REVIEW
 }

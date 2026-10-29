@@ -18,12 +18,14 @@ public class RabbitMQConfig {
      *************************************************/
     public static final String DEFAULT_SHARES_ACCOUNT_QUEUE_NAME = "default_share_account_queue";
     public static final String OTHER_ACCOUNT_CREATION_QUEUE_NAME = "other_account_creation_queue";
+    public static final String KYC_VERIFICATION_QUEUE_NAME = "kyc_verification_queue";
 
     /************************************************
      ROUTING
      *************************************************/
     public static final String DEFAULT_SHARE_ACCOUNT_ROUTING_KEY = "default_share_account_routing_key";
     public static final String OTHER_ACCOUNT_CREATION_ROUTING_KEY = "other_account_creation_routing_key";
+    public static final String KYC_VERIFICATION_ROUTING_KEY = "kyc_verification_routing_key";
 
 
     /************************************************
@@ -39,6 +41,11 @@ public class RabbitMQConfig {
         return new Queue(OTHER_ACCOUNT_CREATION_QUEUE_NAME);
     }
 
+    @Bean
+    public Queue kycVerificationQueue() {
+        return new Queue(KYC_VERIFICATION_QUEUE_NAME);
+    }
+
     /************************************************
      BINDINGS
      *************************************************/
@@ -50,6 +57,11 @@ public class RabbitMQConfig {
     @Bean
     public Binding otherAccountCreationBinding(Queue otherAccountCreationQueue, TopicExchange exchange) {
         return BindingBuilder.bind(otherAccountCreationQueue).to(exchange).with(OTHER_ACCOUNT_CREATION_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding kycVerificationBinding(Queue kycVerificationQueue, TopicExchange exchange) {
+        return BindingBuilder.bind(kycVerificationQueue).to(exchange).with(KYC_VERIFICATION_ROUTING_KEY);
     }
 
     /************************************************

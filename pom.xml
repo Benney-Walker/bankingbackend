@@ -135,6 +135,11 @@
             <artifactId>s3</artifactId>
             <version>2.25.11</version>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>textract</artifactId>
+            <version>2.25.11</version>
+        </dependency>
     </dependencies>
 
     <build>

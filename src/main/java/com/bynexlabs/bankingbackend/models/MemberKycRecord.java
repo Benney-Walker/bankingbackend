@@ -6,6 +6,7 @@ import com.bynexlabs.bankingbackend.enums.VerificationMethod;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -49,7 +50,7 @@ public class MemberKycRecord {
     private String rejectionReason;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private OffsetDateTime createdAt;
+    private LocalDateTime createdAt;
 
     @Column(name = "document_url", nullable = false)
     private String documentUrl;

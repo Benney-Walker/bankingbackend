@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.models;
 
+import com.bynexlabs.bankingbackend.enums.KycDocumentType;
 import com.bynexlabs.bankingbackend.enums.KycStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -24,8 +25,9 @@ public class MemberKycRecord {
     @JoinColumn(name = "member_id", nullable = false)
     private Member member;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "document_type", nullable = false, length = 40)
-    private String documentType;
+    private KycDocumentType documentType;
 
     @Column(name = "verification_method", length = 50)
     private String verificationMethod;

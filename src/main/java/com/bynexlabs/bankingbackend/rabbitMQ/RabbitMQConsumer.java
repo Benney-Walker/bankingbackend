@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.rabbitMQ;
 
+import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
@@ -22,5 +23,10 @@ public class RabbitMQConsumer {
     @RabbitListener(queues = RabbitMQConfig.OTHER_ACCOUNT_CREATION_QUEUE_NAME)
     public void consumeOtherAccountCreationEvent(OtherAccountCreationEvent otherEvent) {
         asyncService.createOtherAccount(otherEvent);
+    }
+
+    @RabbitListener(queues = RabbitMQConfig.KYC_VERIFICATION_QUEUE_NAME)
+    public void consumeKycVerificationEvent(KycVerificationEvent kycEvent) {
+        asyncService.processKycVerification(kycEvent);
     }
 }

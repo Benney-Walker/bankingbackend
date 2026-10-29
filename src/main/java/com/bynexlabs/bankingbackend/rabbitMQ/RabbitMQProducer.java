@@ -26,4 +26,12 @@ public class RabbitMQProducer {
                 payload
         );
     }
+
+    public void sendKycVerificationEvent(Object payload) {
+        rabbitTemplate.convertAndSend(
+                RabbitMQConfig.EXCHANGE_NAME,
+                RabbitMQConfig.KYC_VERIFICATION_ROUTING_KEY,
+                payload
+        );
+    }
 }

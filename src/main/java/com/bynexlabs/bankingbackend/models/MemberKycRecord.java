@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.models;
 
 import com.bynexlabs.bankingbackend.enums.KycDocumentType;
 import com.bynexlabs.bankingbackend.enums.KycStatus;
+import com.bynexlabs.bankingbackend.enums.VerificationMethod;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -29,8 +30,9 @@ public class MemberKycRecord {
     @Column(name = "document_type", nullable = false, length = 40)
     private KycDocumentType documentType;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "verification_method", length = 50)
-    private String verificationMethod;
+    private VerificationMethod verificationMethod;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "verified_by")

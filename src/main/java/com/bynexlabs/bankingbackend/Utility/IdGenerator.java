@@ -17,7 +17,7 @@ public class IdGenerator {
     private final long EQUITY = 3000;
     private final long REVENUE = 4000;
     private final long EXPENSES = 5000;
-    private final long MEMBER_ACCOUNT = 100200;
+    private final long MEMBER_ACCOUNT = 10000;
     private final long STAFF_ID = 900100;
 
     public String generateId(Id_Type idType) {
@@ -78,7 +78,7 @@ public class IdGenerator {
     private String generateUniqueAccountNumber(String code) {
         long currentMillis = System.currentTimeMillis() % 100000L;
 
-        return code + currentMillis;
+        return code + String.format("%05d", currentMillis);
     }
 
 }

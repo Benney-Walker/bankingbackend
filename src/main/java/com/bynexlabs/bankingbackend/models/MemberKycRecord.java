@@ -40,7 +40,7 @@ public class MemberKycRecord {
     private Staff staff;
 
     @Column(name = "verified_at", nullable = false)
-    private OffsetDateTime verifiedAt;
+    private LocalDateTime verifiedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)

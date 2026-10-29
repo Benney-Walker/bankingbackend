@@ -1,6 +1,8 @@
 package com.bynexlabs.bankingbackend.controller;
 
+import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
+import com.bynexlabs.bankingbackend.service.MemberService;
 import com.bynexlabs.bankingbackend.service.StaffService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +19,15 @@ public class AdminController {
 
     private final StaffService staffService;
 
+    private final MemberService memberService;
+
     @PostMapping("/v1/add-staff")
     public ResponseEntity<?> addNewStaff(@Valid @RequestBody StaffDetails staffDetails) {
         return staffService.addNewStaff(staffDetails);
+    }
+
+    @PostMapping("/v1/add-member")
+    public ResponseEntity<?> addNewMember(@Valid @RequestBody MemberDetails memberDetails) {
+        return memberService.registerNewMember(memberDetails);
     }
 }

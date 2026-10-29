@@ -34,6 +34,7 @@ public class MemberService {
 
         if (memberRepository.existsByPhoneNumber(request.getPhoneNumber())) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "status", "failed",
                     "message", "A member with this phone number already exists."
             ));
         }
@@ -61,6 +62,9 @@ public class MemberService {
                 .accountType(AccountType.valueOf(request.getAccountType().toUpperCase()))
                 .build();
         rabbitMQProducer.sendOtherAccountCreationEvent(otherEvent);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(Map.of(
+                "status", "success",
+                "Id", savedMember.getId()
+        ));
     }
 }

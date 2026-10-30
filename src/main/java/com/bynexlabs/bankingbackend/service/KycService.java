@@ -47,6 +47,8 @@ public class KycService {
 
     private final RabbitMQProducer rabbitMQProducer;
 
+    private final MemberAccountService memberAccountService;
+
 
     @Value("${cloudflare.r2.bucket-name}")
     private static String BUCKET_NAME;
@@ -136,6 +138,7 @@ public class KycService {
             record.setStatus(KycStatus.VERIFIED);
             record.setVerifiedAt(LocalDateTime.now());
             record.setVerificationMethod(VerificationMethod.AUTOMATED);
+            memberAccountService.activateMemberAccounts(member);
         } else {
             record.setStatus(KycStatus.MANUAL_REVIEW);
             record.setRejectionReason(String.format("Name mismatch. Profile: %s %s, ID: %s %s",

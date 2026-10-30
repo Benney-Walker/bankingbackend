@@ -8,9 +8,11 @@ import com.bynexlabs.bankingbackend.enums.KycStatus;
 import com.bynexlabs.bankingbackend.enums.VerificationMethod;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberKycRecord;
+import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.rabbitMQ.RabbitMQProducer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -85,6 +87,22 @@ public class KycService {
         ));
     }
 
+    @Transactional
+    public ResponseEntity<?> approveKycInfoManually(UUID memberId, Staff staff) {
+        Member member = memberRepository.findById(memberId).orElse(null);
+        if (member == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "status", "failed",
+                    "message", "Could not find membership record to update"
+            ));
+        }
+        memberAccountService.activateMemberAccounts(member, VerificationMethod.MANUAL, staff);
+        return ResponseEntity.ok(Map.of(
+                "status", "success"
+        ));
+    }
+
+    //  -----Helpers----
     public byte[] downloadDocumentFromR2(String objectKey) {
         GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                 .bucket(BUCKET_NAME)
@@ -135,17 +153,13 @@ public class KycService {
                 member.getLastName().equalsIgnoreCase(extractedLastName);
 
         if (nameMatches) {
-            record.setStatus(KycStatus.VERIFIED);
-            record.setVerifiedAt(LocalDateTime.now());
-            record.setVerificationMethod(VerificationMethod.AUTOMATED);
-            memberAccountService.activateMemberAccounts(member);
+            memberAccountService.activateMemberAccounts(member, VerificationMethod.AUTOMATED, null);
         } else {
             record.setStatus(KycStatus.MANUAL_REVIEW);
             record.setRejectionReason(String.format("Name mismatch. Profile: %s %s, ID: %s %s",
                     member.getFirstName(), member.getLastName(), extractedFirstName, extractedLastName));
+            kycRepository.save(record);
         }
-
-        kycRepository.save(record);
     }
 
     public String extractKeyFromUrl(String url) {

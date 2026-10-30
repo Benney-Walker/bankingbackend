@@ -129,7 +129,6 @@ public class KycService {
         String extractedFirstName = firstNameField.valueDetection().text();
         String extractedLastName = lastNameField.valueDetection().text();
 
-        // Check 2: Does the data match the Member's profile?
         boolean nameMatches = member.getFirstName().equalsIgnoreCase(extractedFirstName) &&
                 member.getLastName().equalsIgnoreCase(extractedLastName);
 

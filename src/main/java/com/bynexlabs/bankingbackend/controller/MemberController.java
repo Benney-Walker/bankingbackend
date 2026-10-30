@@ -27,10 +27,10 @@ public class MemberController {
     }
 
     @PostMapping(
-            value = "v1/kyc/{memberId}",
+            value = "v1/kyc-document-upload",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
-    public ResponseEntity<?> submitKyc(@PathVariable UUID memberId,
+    public ResponseEntity<?> submitKyc(@RequestParam("memberId") UUID memberId,
                                        @RequestParam("documentType") String documentType,
                                        @RequestParam("file") MultipartFile file) {
 

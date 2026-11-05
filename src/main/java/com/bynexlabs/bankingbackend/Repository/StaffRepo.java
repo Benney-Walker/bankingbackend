@@ -7,9 +7,10 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDate;
 import java.util.Date;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface StaffRepo extends JpaRepository<Staff, Long> {
+public interface StaffRepo extends JpaRepository<Staff, UUID> {
     Optional<Staff> findByStaffId(String staffId);
 
     boolean existsByFirstNameAndLastNameAndDateOfBirth(

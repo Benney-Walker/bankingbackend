@@ -20,9 +20,6 @@ public class StorageService {
     @Value("${cloudflare.r2.bucket-name}")
     private String bucketName;
 
-    @Value("${cloudflare.r2.public-url}")
-    private String publicUrl;
-
     public String uploadKycDocument(MultipartFile file, UUID memberId) throws IOException {
         String fileExtension = getFileExtension(file.getOriginalFilename());
 
@@ -34,9 +31,15 @@ public class StorageService {
                 .contentType(file.getContentType())
                 .build();
 
-        s3Client.putObject(putOb, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
+        s3Client.putObject(
+                putOb,
+                RequestBody.fromInputStream(
+                        file.getInputStream(),
+                        file.getSize()
+                )
+        );
 
-        return publicUrl + "/" + objectKey;
+        return objectKey;
     }
 
     private String getFileExtension(String fileName) {

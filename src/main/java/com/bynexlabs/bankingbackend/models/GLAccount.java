@@ -30,9 +30,6 @@ public class GLAccount {
     @Column(name = "category")
     private GL_Category category;
 
-    @Column(name = "is_active")
-    private boolean isActive;
-
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 }

@@ -39,7 +39,7 @@ public class MemberKycRecord {
     @JoinColumn(name = "verified_by")
     private Staff staff;
 
-    @Column(name = "verified_at", nullable = false)
+    @Column(name = "verified_at")
     private LocalDateTime verifiedAt;
 
     @Enumerated(EnumType.STRING)

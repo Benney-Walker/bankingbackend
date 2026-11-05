@@ -29,7 +29,7 @@ public class CloudFlareR2Config {
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(accessKey, secretKey)
                 ))
-                .region(Region.of("auto")) // Cloudflare R2 requires "auto" or "us-east-1"
+                .region(Region.of("auto"))
                 .build();
     }
 }

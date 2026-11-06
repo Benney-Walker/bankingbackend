@@ -21,6 +21,7 @@ public class Staff {
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "staff_id", length = 50, nullable = false, unique = true)

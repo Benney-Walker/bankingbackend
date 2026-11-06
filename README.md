@@ -39,10 +39,14 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 
 ```bash
 ./mvnw spring-boot:run     # Flyway applies pending migrations on startup
-./mvnw test                # unit tests
+./mvnw test                # unit tests; no database or broker needed
 ```
 
-The existing `BankingbackendApplicationTests.contextLoads` test starts the full application context, so it needs a reachable database and RabbitMQ plus the variables above.
+### Tests
+
+- Unit tests use JUnit 5, Mockito and AssertJ (from the Spring Boot test starters) and run with no external services. They currently cover `MemberService` registration, `StaffService` staff creation, `IdGenerator` and the `Member` timestamps.
+- `BankingbackendApplicationTests.contextLoads` starts the full application, so it is skipped unless `POSTGRES_URL` is set in the environment. Tests don't load `.env` (only `main()` does), so export the variables in your shell or IDE run configuration to include it.
+- Integration tests against a real PostgreSQL and RabbitMQ are not set up yet (decision D1).
 
 ### First staff account
 
@@ -90,3 +94,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 ### Completed increments
 
 - **0.1 Persistence fixes for existing flows:** migrations V14 and V15; repository ID types now match their entities (`GLAccountRepo`, `LoanProductRepo` and `IdEntityRepo` use `Integer`); `Staff` IDs are generated as UUIDs; `Member` sets `createdAt` and `updatedAt` itself.
+- **0.2 Test foundation (unit tests):** Mockito unit tests for member registration, staff creation and ID generation; `contextLoads` only runs when the environment is configured. Integration tests wait on D1.

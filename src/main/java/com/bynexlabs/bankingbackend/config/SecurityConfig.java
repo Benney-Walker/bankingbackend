@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.Utility.CustomAccessDeniedHandler;
 import com.bynexlabs.bankingbackend.Utility.CustomAuthEntryPoint;
 import com.bynexlabs.bankingbackend.Utility.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -32,6 +33,11 @@ public class SecurityConfig {
 
     private final CustomAuthEntryPoint customAuthEntryPoint;
 
+    // Browser origins allowed to call the API (comma-separated in app.cors.allowed-origins).
+    // Origins never end with a slash; "https://example.app/" would never match a request.
+    @Value("${app.cors.allowed-origins}")
+    private List<String> allowedOrigins;
+
     @Bean
     public BCryptPasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -45,7 +51,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOrigins(List.of("http://localhost:5173", "https://project-1q3u6.vercel.app/"));
+        config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

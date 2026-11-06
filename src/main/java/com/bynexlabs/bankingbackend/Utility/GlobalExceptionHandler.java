@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -38,7 +39,9 @@ public class GlobalExceptionHandler {
         return error(ex.getStatus(), ex.getMessage(), request);
     }
 
-    @ExceptionHandler(BadCredentialsException.class)
+    // An inactive account gets the same answer as a wrong password, so the login endpoint
+    // doesn't reveal which staff IDs exist or have been deactivated.
+    @ExceptionHandler({BadCredentialsException.class, DisabledException.class})
     public ResponseEntity<Map<String, Object>> handleBadCredentials(HttpServletRequest request) {
         return error(HttpStatus.UNAUTHORIZED, "Invalid ID or password", request);
     }

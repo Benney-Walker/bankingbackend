@@ -39,6 +39,14 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void badRequestUsesStandardBody() {
+        ResponseEntity<Map<String, Object>> response =
+                handler.handleApiException(new BadRequestException("Invalid phone number"), request);
+
+        assertStandardBody(response, 400, "Bad Request", "Invalid phone number");
+    }
+
+    @Test
     void notFoundUsesStandardBody() {
         ResponseEntity<Map<String, Object>> response = handler.handleApiException(
                 new ResourceNotFoundException("Could not find membership record to update"), request);

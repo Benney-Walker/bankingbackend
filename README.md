@@ -32,6 +32,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | Cloudflare R2 | `CLOUD_FLARE_ID`, `CLOUD_FLARE_ACCESS_KEY`, `CLOUD_FLARE_SECRET_KEY` |
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
+| CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
 
 `PUBLIC_URL` is still referenced in the properties file but nothing reads it; KYC documents are stored privately and referenced by object key.
 
@@ -54,7 +55,7 @@ There is no bootstrap for the first administrator yet (roadmap increment 1.4), a
 
 ## API (current)
 
-All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Role checks per endpoint are not in place yet (roadmap increment 1.1): any authenticated staff member can currently call every endpoint below.
+All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Only ACTIVE staff can log in, refresh a token or use one: the access token's owner is checked against the database on every request, so deactivating a staff member takes effect immediately. Role checks per endpoint are not in place yet (roadmap increment 1.1): any authenticated staff member can currently call every endpoint below.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -81,15 +82,15 @@ Every error uses the same JSON body:
 
 | Status | When |
 |---|---|
-| 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path) |
-| 401 | Wrong staff ID or password, invalid refresh token, or a missing/expired access token |
+| 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path), invalid staff phone number (must be 10 digits starting with 0), unknown staff role |
+| 401 | Wrong staff ID or password (an inactive account gets the same response), invalid refresh token, a missing/expired access token, or a token belonging to staff who are no longer active |
 | 403 | Authenticated but not permitted |
 | 404 | Unknown path, or a record that doesn't exist (e.g. manual KYC approval for an unknown member) |
 | 405 | HTTP method not supported by the endpoint |
-| 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone, and currently an invalid staff phone number |
+| 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone |
 | 500 | Anything unexpected; the body never contains internal details, which are logged instead |
 
-Services raise `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
+Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
 
 ## Database migrations
 
@@ -122,3 +123,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **0.1 Persistence fixes for existing flows:** migrations V14 and V15; repository ID types now match their entities (`GLAccountRepo`, `LoanProductRepo` and `IdEntityRepo` use `Integer`); `Staff` IDs are generated as UUIDs; `Member` sets `createdAt` and `updatedAt` itself.
 - **0.2 Test foundation (unit tests):** Mockito unit tests for member registration, staff creation and ID generation; `contextLoads` only runs when the environment is configured. Integration tests wait on D1.
 - **0.3 Error handling and logging:** one error body for every endpoint (decided 2026-11-06), domain exceptions instead of hand-built error responses, 400/404/405 handling for malformed requests and unknown paths (previously 500), and SLF4J logging instead of `System.out`/`System.err`; unexpected errors are logged with their stack trace.
+- **1.2 Active-staff enforcement and auth fixes:** inactive staff are rejected at login, on refresh and on every request; login authorities use role names; staff phone check fixed (`&&` → `||`) and, with unknown roles, now returns 400 (decision D5a); CORS origins moved to `app.cors.allowed-origins` with the trailing-slash origin fixed; duplicate AMQP starter removed from `pom.xml`.

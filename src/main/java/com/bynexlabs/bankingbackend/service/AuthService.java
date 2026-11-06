@@ -5,6 +5,7 @@ import com.bynexlabs.bankingbackend.DTO.auth.LoginResponse;
 import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
+import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -68,7 +69,8 @@ public class AuthService {
 
         String staffId = jwtUtility.extractUsername(refreshToken);
         Staff staff = staffService.getStaffDetails(staffId);
-        if (staff == null) {
+        // An inactive staff member must not be able to mint new access tokens.
+        if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {
             throw new UnauthorizedException("Invalid or expired refresh token");
         }
 

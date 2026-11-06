@@ -3,6 +3,7 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
+import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
@@ -20,6 +21,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Service
@@ -42,17 +44,19 @@ public class StaffService {
     public ResponseEntity<?> addNewStaff(StaffDetails staffDetails){
         LocalDate dob = LocalDate.parse(staffDetails.getDateOfBirth(), DateTimeFormatter.ISO_DATE);
 
+        // Validate the input before touching the database or consuming a staff ID.
+        String phoneNumber = staffDetails.getPhoneNumber();
+        if (!phoneNumber.startsWith("0") || phoneNumber.length() != 10) {
+            throw new BadRequestException("Invalid phone number");
+        }
+        List<Roles> roles = parseRoles(staffDetails.getRoles());
+
         if (
                 staffRepo.existsByFirstNameAndLastNameAndDateOfBirth(
                         staffDetails.getFirstName(), staffDetails.getLastName(), dob
                 )
         ) {
             throw new ConflictException("Staff already exist");
-        }
-
-        if (!staffDetails.getPhoneNumber().startsWith("0") &&
-        staffDetails.getPhoneNumber().length() != 10) {
-            throw new ConflictException("Invalid phone number");
         }
 
         if (staffRepo.existsByPhoneNumber(staffDetails.getPhoneNumber())) {
@@ -81,26 +85,33 @@ public class StaffService {
                 .updatedAt(LocalDateTime.now()).build();
         staffRepo.save(staff);
 
-        saveStaffRoles(staff, staffDetails.getRoles());
+        saveStaffRoles(staff, roles);
 
         //Asynchronous task will be here later
         return ResponseEntity.ok().build();
     }
 
-    private void saveStaffRoles(Staff staff, List<String> staffRoles) {
-
-        try {
-            List<StaffRoles> roles = new ArrayList<>();
-            for (String staffRole : staffRoles) {
-                StaffRoles newRole = new StaffRoles();
-                newRole.setStaff(staff);
-                newRole.setRole(Roles.valueOf(staffRole.toUpperCase()));
-                roles.add(newRole);
+    private List<Roles> parseRoles(List<String> requestedRoles) {
+        List<Roles> roles = new ArrayList<>();
+        for (String requested : requestedRoles) {
+            try {
+                roles.add(Roles.valueOf(requested.toUpperCase()));
+            } catch (IllegalArgumentException | NullPointerException e) {
+                throw new BadRequestException("Invalid role: " + requested
+                        + ". Allowed roles: " + Arrays.toString(Roles.values()));
             }
-            staffRolesRepo.saveAll(roles);
-
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Error: " + e.getMessage());
         }
+        return roles;
+    }
+
+    private void saveStaffRoles(Staff staff, List<Roles> roles) {
+        List<StaffRoles> staffRoles = new ArrayList<>();
+        for (Roles role : roles) {
+            StaffRoles newRole = new StaffRoles();
+            newRole.setStaff(staff);
+            newRole.setRole(role);
+            staffRoles.add(newRole);
+        }
+        staffRolesRepo.saveAll(staffRoles);
     }
 }

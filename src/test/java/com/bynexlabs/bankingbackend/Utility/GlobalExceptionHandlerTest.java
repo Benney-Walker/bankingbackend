@@ -47,6 +47,13 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void roleDenialIsForbiddenNotServerError() {
+        ResponseEntity<Map<String, Object>> response = handler.handleAccessDenied(request);
+
+        assertStandardBody(response, 403, "Forbidden", "You do not have permission to perform this action");
+    }
+
+    @Test
     void notFoundUsesStandardBody() {
         ResponseEntity<Map<String, Object>> response = handler.handleApiException(
                 new ResourceNotFoundException("Could not find membership record to update"), request);

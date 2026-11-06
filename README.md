@@ -55,16 +55,16 @@ There is no bootstrap for the first administrator yet (roadmap increment 1.4), a
 
 ## API (current)
 
-All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Only ACTIVE staff can log in, refresh a token or use one: the access token's owner is checked against the database on every request, so deactivating a staff member takes effect immediately. Role checks per endpoint are not in place yet (roadmap increment 1.1): any authenticated staff member can currently call every endpoint below.
+All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Only ACTIVE staff can log in, refresh a token or use one: the access token's owner is checked against the database on every request, so deactivating a staff member takes effect immediately. Each endpoint declares the roles allowed to call it with `@PreAuthorize` (owner-approved, 2026-11-06); any other role gets 403. Every new endpoint must declare its roles too, and `EndpointRoleRulesTest` fails if one doesn't.
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/auth/v1/login` | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
-| GET | `/api/auth/v1/refresh-token` | New access token from `{ "refreshToken": ... }` in the request body (method change pending, D4) |
-| POST | `/api/staff/v1/add-staff` | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR` |
-| POST | `/api/member/v1/add-member` | Register a member (status `PENDING`) and queue creation of a shares account plus a `SAVINGS` or `CURRENT` account, both inactive with zero balance |
-| POST | `/api/member/v1/kyc-document-upload` | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
-| POST | `/api/member/v1/manual-kyc-approval/{memberId}` | Mark KYC verified and activate the member and their accounts |
+| Method | Path | Roles | Purpose |
+|---|---|---|---|
+| POST | `/api/auth/v1/login` | Public | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
+| GET | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body (method change pending, D4) |
+| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR` |
+| POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus a `SAVINGS` or `CURRENT` account, both inactive with zero balance |
+| POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
+| POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified and activate the member and their accounts |
 
 ### Error responses
 
@@ -84,7 +84,7 @@ Every error uses the same JSON body:
 |---|---|
 | 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path), invalid staff phone number (must be 10 digits starting with 0), unknown staff role |
 | 401 | Wrong staff ID or password (an inactive account gets the same response), invalid refresh token, a missing/expired access token, or a token belonging to staff who are no longer active |
-| 403 | Authenticated but not permitted |
+| 403 | Authenticated, but the staff member's role isn't allowed to call the endpoint |
 | 404 | Unknown path, or a record that doesn't exist (e.g. manual KYC approval for an unknown member) |
 | 405 | HTTP method not supported by the endpoint |
 | 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone |
@@ -113,8 +113,8 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Member registration and async account creation | Implemented; member timestamps fixed in 0.1 |
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
 | Automated KYC verification | Present but not working end to end (bucket name not injected, runs outside a transaction); fixed in roadmap 3.1. Compares names only |
-| Manual KYC approval | Implemented, without role checks |
-| Endpoint role permissions | Not implemented (1.1) |
+| Manual KYC approval | Implemented (ADMINISTRATOR, AGENT) |
+| Endpoint role permissions | Implemented for all current endpoints (1.1) |
 | Transactions, ledger postings, shares, SMS on collection | Not implemented (Phases 4–5) |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
@@ -124,3 +124,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **0.2 Test foundation (unit tests):** Mockito unit tests for member registration, staff creation and ID generation; `contextLoads` only runs when the environment is configured. Integration tests wait on D1.
 - **0.3 Error handling and logging:** one error body for every endpoint (decided 2026-11-06), domain exceptions instead of hand-built error responses, 400/404/405 handling for malformed requests and unknown paths (previously 500), and SLF4J logging instead of `System.out`/`System.err`; unexpected errors are logged with their stack trace.
 - **1.2 Active-staff enforcement and auth fixes:** inactive staff are rejected at login, on refresh and on every request; login authorities use role names; staff phone check fixed (`&&` → `||`) and, with unknown roles, now returns 400 (decision D5a); CORS origins moved to `app.cors.allowed-origins` with the trailing-slash origin fixed; duplicate AMQP starter removed from `pom.xml`.
+- **1.1 Endpoint role checks:** method security enabled; add-staff is ADMINISTRATOR only; member registration, KYC upload and manual KYC approval are ADMINISTRATOR or AGENT; `@PreAuthorize` denials return 403 instead of 500.

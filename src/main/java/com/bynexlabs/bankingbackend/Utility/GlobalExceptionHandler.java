@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.validation.FieldError;
@@ -44,6 +45,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({BadCredentialsException.class, DisabledException.class})
     public ResponseEntity<Map<String, Object>> handleBadCredentials(HttpServletRequest request) {
         return error(HttpStatus.UNAUTHORIZED, "Invalid ID or password", request);
+    }
+
+    // @PreAuthorize denials are thrown inside the controller call, so they arrive here rather than
+    // at CustomAccessDeniedHandler. Without this mapping the catch-all would turn them into 500s.
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDenied(HttpServletRequest request) {
+        String principal = request.getUserPrincipal() != null ? request.getUserPrincipal().getName() : "anonymous";
+        log.warn("Access denied for '{}' on {} {}", principal, request.getMethod(), request.getRequestURI());
+        return error(HttpStatus.FORBIDDEN, "You do not have permission to perform this action", request);
     }
 
     // Since Spring Framework 6.1, unknown paths raise NoResourceFoundException rather than

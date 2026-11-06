@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -25,11 +26,13 @@ public class MemberController {
 
     private final AuthenticatedStaffProvider staffProvider;
 
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
     @PostMapping("/v1/add-member")
     public ResponseEntity<?> addNewMember(@Valid @RequestBody MemberDetails memberDetails) {
         return memberService.registerNewMember(memberDetails);
     }
 
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
     @PostMapping(
             value = "v1/kyc-document-upload",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
@@ -41,6 +44,7 @@ public class MemberController {
         return kycService.submitKyc(memberId, documentType, file);
     }
 
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
     @PostMapping("/v1/manual-kyc-approval/{memberId}")
     public ResponseEntity<?> approveKycInfo(@PathVariable UUID memberId) {
 

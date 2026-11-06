@@ -10,7 +10,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface IdEntityRepo extends JpaRepository<IdEntity, Long> {
+public interface IdEntityRepo extends JpaRepository<IdEntity, Integer> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<IdEntity> findByIdType(Id_Type idType);
 }

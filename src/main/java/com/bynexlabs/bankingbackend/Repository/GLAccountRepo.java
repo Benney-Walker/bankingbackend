@@ -7,5 +7,5 @@ import org.springframework.stereotype.Repository;
 import java.util.UUID;
 
 @Repository
-public interface GLAccountRepo extends JpaRepository<GLAccount, UUID> {
+public interface GLAccountRepo extends JpaRepository<GLAccount, Integer> {
 }

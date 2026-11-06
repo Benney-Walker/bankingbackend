@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
+import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
@@ -20,6 +21,7 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 import static org.mockito.Mockito.*;
 
@@ -51,9 +53,9 @@ public class MemberServiceTest {
     void rejectsDuplicatePhoneNumberWithoutSavingOrQueueingAccounts() {
         when(memberRepository.existsByPhoneNumber("0241234567")).thenReturn(true);
 
-        ResponseEntity<?> response = memberService.registerNewMember(registration("SAVINGS"));
-
-        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThatThrownBy(() -> memberService.registerNewMember(registration("SAVINGS")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("A member with this phone number already exists.");
         verify(memberRepository, never()).save(any());
         verifyNoInteractions(rabbitMQProducer);
     }

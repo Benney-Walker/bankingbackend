@@ -3,6 +3,7 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
+import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
@@ -10,7 +11,6 @@ import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.models.StaffRoles;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -21,7 +21,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -48,28 +47,20 @@ public class StaffService {
                         staffDetails.getFirstName(), staffDetails.getLastName(), dob
                 )
         ) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "message", "Staff already exist"
-            ));
+            throw new ConflictException("Staff already exist");
         }
 
         if (!staffDetails.getPhoneNumber().startsWith("0") &&
         staffDetails.getPhoneNumber().length() != 10) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "message", "Invalid phone number"
-            ));
+            throw new ConflictException("Invalid phone number");
         }
 
         if (staffRepo.existsByPhoneNumber(staffDetails.getPhoneNumber())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "message", "Phone number already exist"
-            ));
+            throw new ConflictException("Phone number already exist");
         }
 
         if (staffRepo.existsByEmail(staffDetails.getEmail())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "message", "Email already exist"
-            ));
+            throw new ConflictException("Email already exist");
         }
 
         String newStaffId = idGenerator.generateId(Id_Type.STAFF_ID);

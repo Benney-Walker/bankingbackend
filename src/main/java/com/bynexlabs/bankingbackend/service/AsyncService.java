@@ -14,6 +14,7 @@ import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import com.bynexlabs.bankingbackend.models.MemberKycRecord;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.textract.model.IdentityDocumentField;
@@ -24,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RequiredArgsConstructor
+@Slf4j
 @Service
 public class AsyncService {
 
@@ -94,7 +96,7 @@ public class AsyncService {
             kycService.verifyAndRoute(record, member, extractedData);
 
         } catch (Exception e) {
-            System.out.println("KYC processing failed for record " + e.getMessage());
+            log.warn("Automated KYC failed for record {}; sending it to manual review", record.getId(), e);
             record.setStatus(KycStatus.MANUAL_REVIEW);
             record.setRejectionReason("System error during automated OCR extraction: " + e.getMessage());
             kycRecordRepo.save(record);

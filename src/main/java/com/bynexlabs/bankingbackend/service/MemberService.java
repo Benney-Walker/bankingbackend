@@ -4,12 +4,12 @@ import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
+import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.rabbitMQ.RabbitMQProducer;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
@@ -33,10 +33,7 @@ public class MemberService {
     public ResponseEntity<?> registerNewMember(MemberDetails request) {
 
         if (memberRepository.existsByPhoneNumber(request.getPhoneNumber())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "status", "failed",
-                    "message", "A member with this phone number already exists."
-            ));
+            throw new ConflictException("A member with this phone number already exists.");
         }
 
         LocalDate dob = LocalDate.parse(request.getDob(), DateTimeFormatter.ISO_DATE);

@@ -65,6 +65,32 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | POST | `/api/member/v1/kyc-document-upload` | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
 | POST | `/api/member/v1/manual-kyc-approval/{memberId}` | Mark KYC verified and activate the member and their accounts |
 
+### Error responses
+
+Every error uses the same JSON body:
+
+```json
+{
+  "timestamp": "2026-11-06T23:40:12.123",
+  "status": 409,
+  "error": "Conflict",
+  "message": "A member with this phone number already exists.",
+  "path": "/api/member/v1/add-member"
+}
+```
+
+| Status | When |
+|---|---|
+| 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path) |
+| 401 | Wrong staff ID or password, invalid refresh token, or a missing/expired access token |
+| 403 | Authenticated but not permitted |
+| 404 | Unknown path, or a record that doesn't exist (e.g. manual KYC approval for an unknown member) |
+| 405 | HTTP method not supported by the endpoint |
+| 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone, and currently an invalid staff phone number |
+| 500 | Anything unexpected; the body never contains internal details, which are logged instead |
+
+Services raise `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
+
 ## Database migrations
 
 Migrations are in `src/main/resources/db/migration` and are never edited once applied; every schema change gets the next version number.
@@ -95,3 +121,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 
 - **0.1 Persistence fixes for existing flows:** migrations V14 and V15; repository ID types now match their entities (`GLAccountRepo`, `LoanProductRepo` and `IdEntityRepo` use `Integer`); `Staff` IDs are generated as UUIDs; `Member` sets `createdAt` and `updatedAt` itself.
 - **0.2 Test foundation (unit tests):** Mockito unit tests for member registration, staff creation and ID generation; `contextLoads` only runs when the environment is configured. Integration tests wait on D1.
+- **0.3 Error handling and logging:** one error body for every endpoint (decided 2026-11-06), domain exceptions instead of hand-built error responses, 400/404/405 handling for malformed requests and unknown paths (previously 500), and SLF4J logging instead of `System.out`/`System.err`; unexpected errors are logged with their stack trace.

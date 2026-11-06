@@ -3,6 +3,7 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
+import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.enums.KycDocumentType;
 import com.bynexlabs.bankingbackend.enums.KycStatus;
 import com.bynexlabs.bankingbackend.enums.VerificationMethod;
@@ -12,7 +13,6 @@ import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.rabbitMQ.RabbitMQProducer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -89,13 +89,8 @@ public class KycService {
 
     @Transactional
     public ResponseEntity<?> approveKycInfoManually(UUID memberId, Staff staff) {
-        Member member = memberRepository.findById(memberId).orElse(null);
-        if (member == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "status", "failed",
-                    "message", "Could not find membership record to update"
-            ));
-        }
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new ResourceNotFoundException("Could not find membership record to update"));
         memberAccountService.activateMemberAccounts(member, VerificationMethod.MANUAL, staff);
         return ResponseEntity.ok(Map.of(
                 "status", "success"

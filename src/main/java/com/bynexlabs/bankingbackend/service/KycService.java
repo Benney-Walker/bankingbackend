@@ -3,6 +3,7 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedIdDocument;
 import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedValue;
 import com.bynexlabs.bankingbackend.DTO.ocr.IdDocumentField;
+import com.bynexlabs.bankingbackend.DTO.member.KycRecordResponse;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
@@ -22,6 +23,10 @@ import com.bynexlabs.bankingbackend.models.MemberKycRecord;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PagedModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -243,6 +248,88 @@ public class KycService {
             throw new ConflictException("This member's KYC is " + record.getStatus() + " and can't be reviewed");
         }
         return record;
+    }
+
+    // ----- Review list, record details and document viewing (roadmap 3.7) -----
+    // Owner rules (2026-11-07): administrators see every member's KYC; agents only members they
+    // registered. Approving and rejecting stays administrator-only (above).
+
+    static final int MAX_PAGE_SIZE = 100;
+
+    /** Where a viewer may fetch a document from; the object key never leaves the backend. */
+    public record KycDocumentRef(UUID memberId, String objectKey, String contentType) {
+    }
+
+    @Transactional(readOnly = true)
+    public PagedModel<KycRecordResponse> listForReview(String status, int page, int size,
+                                                       String viewerStaffId, boolean viewerIsAdmin) {
+        KycStatus kycStatus = parseStatus(status);
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
+        }
+        // Oldest first, so the review list works as a queue.
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("createdAt"));
+        Page<MemberKycRecord> records = viewerIsAdmin
+                ? kycRepository.findByStatus(kycStatus, pageRequest)
+                : kycRepository.findByStatusAndMember_RegisteredBy_StaffId(kycStatus, viewerStaffId, pageRequest);
+        return new PagedModel<>(records.map(KycRecordResponse::from));
+    }
+
+    @Transactional(readOnly = true)
+    public KycRecordResponse getKycRecord(UUID memberId, String viewerStaffId, boolean viewerIsAdmin) {
+        return KycRecordResponse.from(visibleRecord(memberId, viewerStaffId, viewerIsAdmin));
+    }
+
+    /**
+     * Authorises the viewer and resolves the document, in a short read-only transaction. The
+     * caller then downloads it with downloadDocument, outside any transaction.
+     */
+    @Transactional(readOnly = true)
+    public KycDocumentRef findDocumentForViewer(UUID memberId, String viewerStaffId, boolean viewerIsAdmin) {
+        MemberKycRecord record = visibleRecord(memberId, viewerStaffId, viewerIsAdmin);
+        String key = record.getDocumentUrl();
+        // Identity documents are sensitive: record who looked at which member's document.
+        log.info("KYC document of member {} viewed by staff {}", memberId, viewerStaffId);
+        return new KycDocumentRef(memberId, key, contentTypeOf(key));
+    }
+
+    public byte[] downloadDocument(KycDocumentRef document) {
+        return storageService.downloadKycDocument(document.objectKey());
+    }
+
+    private MemberKycRecord visibleRecord(UUID memberId, String viewerStaffId, boolean viewerIsAdmin) {
+        MemberKycRecord record = kycRepository.findByMember_Id(memberId)
+                .orElseThrow(() -> new ResourceNotFoundException("No KYC record for this member"));
+        if (!viewerIsAdmin) {
+            Staff registeredBy = record.getMember().getRegisteredBy();
+            if (registeredBy == null || viewerStaffId == null || !viewerStaffId.equals(registeredBy.getStaffId())) {
+                throw new ForbiddenException("You can only view KYC records of members you registered");
+            }
+        }
+        return record;
+    }
+
+    // Keys are written with the extension of the detected image type (KycUploadRules).
+    static String contentTypeOf(String objectKey) {
+        String key = objectKey.toLowerCase();
+        if (key.endsWith(".png")) {
+            return "image/png";
+        }
+        if (key.endsWith(".jpg") || key.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        return "application/octet-stream";
+    }
+
+    private static KycStatus parseStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return KycStatus.MANUAL_REVIEW;
+        }
+        try {
+            return KycStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("status must be one of " + Arrays.toString(KycStatus.values()));
+        }
     }
 
     // ----- Automated verification steps (see class comment) -----

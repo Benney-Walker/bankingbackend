@@ -1,17 +1,21 @@
 package com.bynexlabs.bankingbackend.controller;
 
+import com.bynexlabs.bankingbackend.DTO.member.KycRecordResponse;
 import com.bynexlabs.bankingbackend.DTO.member.KycRejectionRequest;
 import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
+import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.service.KycService;
 import com.bynexlabs.bankingbackend.service.MemberService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.web.PagedModel;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -86,5 +90,38 @@ public class MemberController {
     public ResponseEntity<?> rejectKycInfo(@PathVariable UUID memberId,
                                            @Valid @RequestBody KycRejectionRequest request) {
         return kycService.rejectKycManually(memberId, request.getReason(), staffProvider.getStaff());
+    }
+
+    // Review list (roadmap 3.7). Administrators see every member; agents only members they
+    // registered (scoping is applied in KycService). status defaults to MANUAL_REVIEW.
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
+    @GetMapping("/v1/kyc-reviews")
+    public PagedModel<KycRecordResponse> listKycReviews(@RequestParam(required = false) String status,
+                                                        @RequestParam(defaultValue = "0") int page,
+                                                        @RequestParam(defaultValue = "20") int size) {
+        return kycService.listForReview(status, page, size, staffProvider.getStaffId(),
+                staffProvider.hasRole(Roles.ADMINISTRATOR));
+    }
+
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
+    @GetMapping("/v1/kyc-details/{memberId}")
+    public KycRecordResponse getKycRecord(@PathVariable UUID memberId) {
+        return kycService.getKycRecord(memberId, staffProvider.getStaffId(), staffProvider.hasRole(Roles.ADMINISTRATOR));
+    }
+
+    // Owner decision D13: the image is streamed through the backend from the private bucket;
+    // no public or pre-signed URL is ever handed out.
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
+    @GetMapping("/v1/kyc-document/{memberId}")
+    public ResponseEntity<byte[]> getKycDocument(@PathVariable UUID memberId) {
+        KycService.KycDocumentRef document = kycService.findDocumentForViewer(
+                memberId, staffProvider.getStaffId(), staffProvider.hasRole(Roles.ADMINISTRATOR));
+        byte[] content = kycService.downloadDocument(document);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(document.contentType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+                // Identity documents must not be kept in browser or proxy caches.
+                .cacheControl(CacheControl.noStore())
+                .body(content);
     }
 }

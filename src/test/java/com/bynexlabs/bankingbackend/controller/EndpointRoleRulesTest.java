@@ -96,6 +96,18 @@ class EndpointRoleRulesTest {
                 .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT);
     }
 
+    // Owner rule (2026-11-07): administrators and agents see the review list, record details and
+    // documents (agents only for members they registered, enforced in KycService); collectors don't.
+    @Test
+    void administratorsAndAgentsSeeKycReviews() {
+        MemberController controller = new MemberController(null, null, null);
+        for (String endpoint : new String[]{"listKycReviews", "getKycRecord", "getKycDocument"}) {
+            assertThat(rolesAllowedFor(controller, endpoint))
+                    .as(endpoint)
+                    .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT);
+        }
+    }
+
     // Owner rule (2026-11-07): only administrators approve or reject KYC manually.
     @Test
     void onlyAdministratorsApproveOrRejectKycManually() {

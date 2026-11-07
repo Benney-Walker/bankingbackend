@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.DTO.sms.VynfySmsPayload;
 import com.bynexlabs.bankingbackend.DTO.sms.VynfySmsResponse;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -15,6 +16,7 @@ import org.springframework.web.client.RestTemplate;
 import java.util.Collections;
 import java.util.List;
 
+@Slf4j
 @Service
 public class VynfySmsService implements SmsInterface {
 
@@ -37,7 +39,7 @@ public class VynfySmsService implements SmsInterface {
         headers.set("X-API-Key", API_KEY);
 
         VynfySmsPayload payload = VynfySmsPayload.builder()
-                .recipients(recipients)
+                .recipients(recipients.stream().map(VynfySmsService::toInternationalFormat).toList())
                 .message(message)
                 .sender(VYNFY_SENDER_ID)
                 .metaData(null)
@@ -60,7 +62,7 @@ public class VynfySmsService implements SmsInterface {
             return smsResponse;
 
         } catch (Exception e) {
-            //log.error("Could not send bulk sms messages: " + e.getMessage());
+            log.error("Could not send bulk SMS to {} recipients: {}", recipients.size(), e.getMessage());
             smsResponse = SmsResponse.builder()
                     .success(false)
                     .build();
@@ -76,7 +78,7 @@ public class VynfySmsService implements SmsInterface {
         headers.set("X-API-Key", API_KEY);
 
         VynfySmsPayload payload = VynfySmsPayload.builder()
-                .recipients(Collections.singletonList(recipient))
+                .recipients(Collections.singletonList(toInternationalFormat(recipient)))
                 .message(message)
                 .sender(VYNFY_SENDER_ID)
                 .metaData(null)
@@ -99,11 +101,34 @@ public class VynfySmsService implements SmsInterface {
             return smsResponse;
 
         } catch (Exception e) {
-            //log.error("Could not send sms message: " + e.getMessage());
+            log.error("Could not send SMS: {}", e.getMessage());
             smsResponse = SmsResponse.builder()
                     .success(false)
                     .build();
             return smsResponse;
         }
+    }
+
+    /**
+     * Vynfy only accepts international numbers (owner, 2026-11-07), but phone numbers are stored
+     * in the local format, e.g. 0241234567. Local Ghanaian numbers become +233241234567; numbers
+     * already in international form are kept. Anything else is sent unchanged and Vynfy will
+     * reject it, which shows up as an unsuccessful SmsResponse.
+     */
+    static String toInternationalFormat(String phoneNumber) {
+        if (phoneNumber == null) {
+            return null;
+        }
+        String number = phoneNumber.replaceAll("[\\s-]", "");
+        if (number.startsWith("+")) {
+            return number;
+        }
+        if (number.startsWith("233")) {
+            return "+" + number;
+        }
+        if (number.startsWith("0") && number.length() == 10) {
+            return "+233" + number.substring(1);
+        }
+        return number;
     }
 }

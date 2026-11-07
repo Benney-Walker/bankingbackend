@@ -1,6 +1,7 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
+import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -24,10 +25,15 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException("Staff not found"));
 
         List<SimpleGrantedAuthority> authorities = staff.getRoles().stream()
-                .map(role -> new SimpleGrantedAuthority(role.toString()))
+                .map(role -> new SimpleGrantedAuthority(role.getRole().name()))
                 .toList();
-        return new User(staff.getStaffId(),
-                staff.getPassword(),
-                authorities);
+
+        // A disabled user makes Spring reject the login with DisabledException, which
+        // GlobalExceptionHandler answers exactly like a wrong password.
+        return User.withUsername(staff.getStaffId())
+                .password(staff.getPassword())
+                .authorities(authorities)
+                .disabled(staff.getStaffStatus() != StaffStatus.ACTIVE)
+                .build();
     }
 }

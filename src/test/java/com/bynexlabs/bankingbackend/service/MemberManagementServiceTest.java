@@ -1,0 +1,186 @@
+package com.bynexlabs.bankingbackend.service;
+
+import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
+import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
+import com.bynexlabs.bankingbackend.Repository.MemberRepository;
+import com.bynexlabs.bankingbackend.Utility.BadRequestException;
+import com.bynexlabs.bankingbackend.Utility.ConflictException;
+import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
+import com.bynexlabs.bankingbackend.enums.AccountStatus;
+import com.bynexlabs.bankingbackend.enums.AccountType;
+import com.bynexlabs.bankingbackend.enums.MembershipStatus;
+import com.bynexlabs.bankingbackend.models.Member;
+import com.bynexlabs.bankingbackend.models.MemberAccount;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedModel;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/** Member search, profile and contact updates (roadmap 2.3). */
+@ExtendWith(MockitoExtension.class)
+class MemberManagementServiceTest {
+
+    @Mock
+    private MemberRepository memberRepository;
+
+    @Mock
+    private OutboxService outboxService;
+
+    @Mock
+    private MemberAccountRepo memberAccountRepo;
+
+    private MemberService memberService;
+
+    private final UUID memberId = UUID.randomUUID();
+
+    @BeforeEach
+    void setUp() {
+        memberService = new MemberService(memberRepository, outboxService, memberAccountRepo);
+    }
+
+    private Member member() {
+        Member member = new Member();
+        member.setId(memberId);
+        member.setFirstName("Ama");
+        member.setLastName("Mensah");
+        member.setDateOfBirth(LocalDate.of(1990, 5, 14));
+        member.setPhoneNumber("0241234567");
+        member.setResidentialAddress("Tarkwa");
+        member.setOccupation("Trader");
+        member.setMembershipStatus(MembershipStatus.ACTIVE);
+        return member;
+    }
+
+    private MemberAccount account(String number, AccountType type) {
+        MemberAccount account = new MemberAccount();
+        account.setAccountNumber(number);
+        account.setAccountType(type);
+        account.setStatus(AccountStatus.ACTIVE);
+        account.setCurrentBalance(new BigDecimal("150.0000"));
+        return account;
+    }
+
+    private MemberUpdateRequest update(String phone) {
+        return MemberUpdateRequest.builder()
+                .phoneNumber(phone)
+                .residentialAddress("Takoradi")
+                .occupation("Seamstress")
+                .build();
+    }
+
+    @Test
+    void blankQueryListsAllMembersSortedByName() {
+        when(memberRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(member())));
+
+        PagedModel<MemberSummaryResponse> result = memberService.searchMembers("  ", 0, 20);
+
+        assertThat(result.getContent()).extracting(MemberSummaryResponse::getMemberId).containsExactly(memberId);
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(memberRepository).findAll(pageable.capture());
+        assertThat(pageable.getValue().getSort().getOrderFor("lastName")).isNotNull();
+        verify(memberRepository, never()).search(anyString(), any());
+    }
+
+    @Test
+    void queryIsTrimmedAndSearched() {
+        when(memberRepository.search(eq("Mensah"), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(member())));
+
+        PagedModel<MemberSummaryResponse> result = memberService.searchMembers(" Mensah ", 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getPhoneNumber()).isEqualTo("0241234567");
+    }
+
+    @Test
+    void searchRejectsPageSizeAboveLimit() {
+        assertThatThrownBy(() -> memberService.searchMembers(null, 0, MemberService.MAX_PAGE_SIZE + 1))
+                .isInstanceOf(BadRequestException.class);
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void profileIncludesAccountsButNoBalances() {
+        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member()));
+        when(memberAccountRepo.findByMember_Id(memberId)).thenReturn(List.of(
+                account("1004212345", AccountType.SHARES), account("1004312346", AccountType.SAVINGS)));
+
+        MemberProfileResponse profile = memberService.getMemberProfile(memberId);
+
+        assertThat(profile.getOccupation()).isEqualTo("Trader");
+        assertThat(profile.getAccounts())
+                .extracting(MemberProfileResponse.AccountSummary::getAccountNumber)
+                .containsExactly("1004212345", "1004312346");
+        assertThat(profile.getAccounts())
+                .extracting(MemberProfileResponse.AccountSummary::getAccountType)
+                .containsExactly(AccountType.SHARES, AccountType.SAVINGS);
+    }
+
+    @Test
+    void unknownMemberIsNotFound() {
+        when(memberRepository.findById(memberId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> memberService.getMemberProfile(memberId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Member not found");
+    }
+
+    @Test
+    void updateChangesOnlyPhoneAddressAndOccupation() {
+        Member member = member();
+        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member));
+        when(memberRepository.save(member)).thenReturn(member);
+        when(memberAccountRepo.findByMember_Id(memberId)).thenReturn(List.of());
+
+        MemberProfileResponse profile = memberService.updateMemberContact(memberId, update("0207654321"));
+
+        assertThat(profile.getPhoneNumber()).isEqualTo("0207654321");
+        assertThat(profile.getResidentialAddress()).isEqualTo("Takoradi");
+        assertThat(profile.getOccupation()).isEqualTo("Seamstress");
+        assertThat(member.getFirstName()).isEqualTo("Ama");
+        assertThat(member.getDateOfBirth()).isEqualTo(LocalDate.of(1990, 5, 14));
+        assertThat(member.getMembershipStatus()).isEqualTo(MembershipStatus.ACTIVE);
+    }
+
+    @Test
+    void updateRejectsPhoneNotInLocalFormat() {
+        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member()));
+
+        assertThatThrownBy(() -> memberService.updateMemberContact(memberId, update("+233207654321")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Invalid phone number");
+        verify(memberRepository, never()).save(any());
+    }
+
+    @Test
+    void updateRejectsPhoneOfAnotherMember() {
+        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member()));
+        when(memberRepository.existsByPhoneNumberAndIdNot("0207654321", memberId)).thenReturn(true);
+
+        assertThatThrownBy(() -> memberService.updateMemberContact(memberId, update("0207654321")))
+                .isInstanceOf(ConflictException.class);
+        verify(memberRepository, never()).save(any());
+    }
+}

@@ -4,9 +4,10 @@ import com.bynexlabs.bankingbackend.DTO.auth.LoginRequest;
 import com.bynexlabs.bankingbackend.DTO.auth.LoginResponse;
 import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
+import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
+import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -63,17 +64,14 @@ public class AuthService {
         String refreshToken = refreshRequest.getRefreshToken();
 
         if (!jwtUtility.isRefreshToken(refreshToken)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
-                    "message", "Invalid refresh token"
-            ));
+            throw new UnauthorizedException("Invalid refresh token");
         }
 
         String staffId = jwtUtility.extractUsername(refreshToken);
         Staff staff = staffService.getStaffDetails(staffId);
-        if (staff == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
-                    "message", "Invalid or expired refresh token"
-            ));
+        // An inactive staff member must not be able to mint new access tokens.
+        if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {
+            throw new UnauthorizedException("Invalid or expired refresh token");
         }
 
         List<String> rolesList = staff.getRoles().stream()

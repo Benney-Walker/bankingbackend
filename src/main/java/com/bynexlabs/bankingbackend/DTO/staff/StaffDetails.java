@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.DTO.staff;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -34,7 +35,10 @@ public class StaffDetails {
     @NotBlank(message = "Email can't be empty")
     private String email;
 
+    // Same rule as password reset: at least 8 characters (owner, 2026-11-07); at most 72,
+    // BCrypt's input limit.
     @NotBlank(message = "Password can't be empty")
+    @Size(min = 8, max = 72, message = "Password must be between 8 and 72 characters")
     private String password;
 
     @NotBlank(message = "Address can't be empty")

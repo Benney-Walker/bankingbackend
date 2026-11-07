@@ -4,11 +4,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
 
+@Slf4j
 @Component
 public class CustomAccessDeniedHandler implements AccessDeniedHandler {
 
@@ -35,12 +37,12 @@ public class CustomAccessDeniedHandler implements AccessDeniedHandler {
                 request.getRequestURI()
         );
 
-        //String principal = (request.getUserPrincipal() != null)
-        //        ? request.getUserPrincipal().getName()
-        //        : "anonymous";
-        //log.warn("Access denied for '{}' on {} {}: {}",
-        //        principal, request.getMethod(), request.getRequestURI(),
-        //        accessDeniedException.getMessage());
+        String principal = (request.getUserPrincipal() != null)
+                ? request.getUserPrincipal().getName()
+                : "anonymous";
+        log.warn("Access denied for '{}' on {} {}: {}",
+                principal, request.getMethod(), request.getRequestURI(),
+                accessDeniedException.getMessage());
 
         response.getWriter().write(json);
     }

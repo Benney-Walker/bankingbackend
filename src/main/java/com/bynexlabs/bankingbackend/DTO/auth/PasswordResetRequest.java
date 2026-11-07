@@ -1,0 +1,15 @@
+package com.bynexlabs.bankingbackend.DTO.auth;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class PasswordResetRequest {
+
+    @NotBlank(message = "Staff ID is required")
+    private String staffId;
+}

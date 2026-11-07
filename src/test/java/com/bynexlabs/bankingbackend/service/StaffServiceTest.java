@@ -3,6 +3,8 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
+import com.bynexlabs.bankingbackend.Utility.BadRequestException;
+import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
@@ -12,6 +14,8 @@ import com.bynexlabs.bankingbackend.models.StaffRoles;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -23,6 +27,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -74,20 +79,40 @@ class StaffServiceTest {
         when(staffRepo.existsByFirstNameAndLastNameAndDateOfBirth(
                 "Kofi", "Owusu", LocalDate.of(1988, 2, 20))).thenReturn(true);
 
-        ResponseEntity<?> response = staffService.addNewStaff(newStaff(List.of("AGENT")));
-
-        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThatThrownBy(() -> staffService.addNewStaff(newStaff(List.of("AGENT"))))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Staff already exist");
         verify(staffRepo, never()).save(any());
         verifyNoInteractions(idGenerator, staffRolesRepo);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"241234567", "1241234567", "02412345678"})
+    void rejectsPhoneNumberThatIsNotTenDigitsStartingWithZero(String phoneNumber) {
+        StaffDetails details = newStaff(List.of("AGENT"));
+        details.setPhoneNumber(phoneNumber);
+
+        assertThatThrownBy(() -> staffService.addNewStaff(details))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Invalid phone number");
+        verifyNoInteractions(staffRepo, idGenerator, staffRolesRepo);
+    }
+
+    @Test
+    void rejectsUnknownRoleBeforeSavingAnything() {
+        assertThatThrownBy(() -> staffService.addNewStaff(newStaff(List.of("AGENT", "MANAGER"))))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageStartingWith("Invalid role: MANAGER");
+        verifyNoInteractions(staffRepo, idGenerator, staffRolesRepo);
     }
 
     @Test
     void rejectsDuplicateEmail() {
         when(staffRepo.existsByEmail("kofi.owusu@example.com")).thenReturn(true);
 
-        ResponseEntity<?> response = staffService.addNewStaff(newStaff(List.of("AGENT")));
-
-        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThatThrownBy(() -> staffService.addNewStaff(newStaff(List.of("AGENT"))))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Email already exist");
         verify(staffRepo, never()).save(any());
     }
 

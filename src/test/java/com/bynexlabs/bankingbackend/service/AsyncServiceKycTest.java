@@ -1,6 +1,8 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedIdDocument;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
+import com.bynexlabs.bankingbackend.interfaces.OcrInterface;
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
 import org.junit.jupiter.api.Test;
@@ -10,7 +12,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import software.amazon.awssdk.core.exception.SdkClientException;
-import software.amazon.awssdk.services.textract.model.IdentityDocumentField;
 
 import java.util.Map;
 import java.util.Optional;
@@ -45,6 +46,9 @@ class AsyncServiceKycTest {
     private KycService kycService;
 
     @Mock
+    private OcrInterface ocrService;
+
+    @Mock
     private ProcessedMessageService processedMessageService;
 
     @InjectMocks
@@ -60,11 +64,11 @@ class AsyncServiceKycTest {
     @Test
     void downloadsFromR2RunsOcrAndCompletes() {
         byte[] document = {1, 2, 3};
-        Map<String, IdentityDocumentField> extracted = Map.of();
+        ExtractedIdDocument extracted = new ExtractedIdDocument(Map.of());
         when(kycService.startAutomatedVerification(recordId))
                 .thenReturn(Optional.of(new KycService.VerificationTask(recordId, key)));
         when(storageService.downloadKycDocument(key)).thenReturn(document);
-        when(kycService.extractIdInformation(document)).thenReturn(extracted);
+        when(ocrService.extractIdDocument(document)).thenReturn(extracted);
 
         asyncService.processKycVerification(event());
 

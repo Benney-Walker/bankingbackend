@@ -8,7 +8,7 @@ Spring Boot API for a single credit union. It serves the staff desktop applicati
 - PostgreSQL with Flyway migrations (`spring.jpa.hibernate.ddl-auto=validate`)
 - RabbitMQ for internal asynchronous work (account creation, KYC verification). All messages (account creation and KYC verification) go through a transactional outbox (`outbox_events`), so they're never lost if RabbitMQ is down
 - Cloudflare R2 (S3-compatible, private bucket `kyc-documents`) for KYC documents
-- AWS Textract for KYC OCR (provider not final)
+- AWS Textract for KYC OCR (provider not final). The KYC flow only talks to `OcrInterface` (`interfaces` package); `TextractOcrService` is the current implementation, so switching providers means adding one class
 - Vynfy for SMS (used for staff password-reset codes). Vynfy only accepts international numbers, so stored local numbers (`0241234567`) are sent as `+233241234567`
 - JWT (JJWT) for staff authentication
 
@@ -168,3 +168,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **3.1 Automated KYC fixed:** the bucket name is now read correctly (download moved into `StorageService`); verification runs as read → external calls → write, without holding a transaction during R2/OCR; the KYC message goes through the outbox; upload validates document type and member before uploading; manual approval returns 409 when there's no KYC submission instead of a 500; `RabbitMQProducer` removed (everything uses the outbox). Account numbers keep their current format (decision D7).
 - **3.2 (part) and 3.3 KYC upload rules:** one KYC record per member, enforced in the database (V19) and checked before upload (409); JPEG/PNG only, detected from the file's bytes; 5 MB maximum (app check plus `spring.servlet.multipart.max-file-size=5MB`; over the limit → 413). Stored objects use the detected extension and content type. Re-upload after a rejected review is pending owner clarification.
 - **3.2 completed + manual rejection (part of 3.7):** members record who registered them (V20); ADMINISTRATOR-only manual approval **and** rejection (reason required), only for documents under review; after a rejection, only the registering staff member can upload a replacement, which resets the record to `PENDING`, re-runs verification and deletes the old file after commit.
+- **3.4 OCR provider abstraction:** `OcrInterface` returns provider-neutral `ExtractedIdDocument` values (first, middle and last name, date of birth, document number, each with a 0–100 confidence); all Textract code lives in `TextractOcrService`. Matching behaviour is unchanged.

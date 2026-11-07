@@ -1,5 +1,8 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedIdDocument;
+import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedValue;
+import com.bynexlabs.bankingbackend.DTO.ocr.IdDocumentField;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
@@ -26,9 +29,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import software.amazon.awssdk.services.textract.TextractClient;
-import software.amazon.awssdk.services.textract.model.AnalyzeIDDetections;
-import software.amazon.awssdk.services.textract.model.IdentityDocumentField;
 
 import java.util.Map;
 import java.util.Optional;
@@ -57,9 +57,6 @@ class KycServiceTest {
     private StorageService storageService;
 
     @Mock
-    private TextractClient textractClient;
-
-    @Mock
     private OutboxService outboxService;
 
     @Mock
@@ -80,7 +77,7 @@ class KycServiceTest {
 
     @BeforeEach
     void setUp() {
-        kycService = new KycService(memberRepository, kycRepository, storageService, textractClient,
+        kycService = new KycService(memberRepository, kycRepository, storageService,
                 outboxService, memberAccountService);
         // Stand-in for the request transaction, so after-commit callbacks can be registered.
         TransactionSynchronizationManager.initSynchronization();
@@ -113,16 +110,10 @@ class KycServiceTest {
         return record;
     }
 
-    private static IdentityDocumentField field(String type, String value, float confidence) {
-        return IdentityDocumentField.builder()
-                .type(AnalyzeIDDetections.builder().text(type).build())
-                .valueDetection(AnalyzeIDDetections.builder().text(value).confidence(confidence).build())
-                .build();
-    }
-
-    private static Map<String, IdentityDocumentField> ocr(String first, String last, float confidence) {
-        return Map.of("FIRST_NAME", field("FIRST_NAME", first, confidence),
-                "LAST_NAME", field("LAST_NAME", last, confidence));
+    private static ExtractedIdDocument ocr(String first, String last, float confidence) {
+        return new ExtractedIdDocument(Map.of(
+                IdDocumentField.FIRST_NAME, new ExtractedValue(first, confidence),
+                IdDocumentField.LAST_NAME, new ExtractedValue(last, confidence)));
     }
 
     private void givenSaveAndFlushAssignsId() {

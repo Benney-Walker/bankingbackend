@@ -1,5 +1,8 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedIdDocument;
+import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedValue;
+import com.bynexlabs.bankingbackend.DTO.ocr.IdDocumentField;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
@@ -25,11 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.services.textract.TextractClient;
-import software.amazon.awssdk.services.textract.model.AnalyzeIdRequest;
-import software.amazon.awssdk.services.textract.model.AnalyzeIdResponse;
-import software.amazon.awssdk.services.textract.model.Document;
-import software.amazon.awssdk.services.textract.model.IdentityDocumentField;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -38,7 +36,6 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * KYC submission, automated verification steps and manual approval.
@@ -46,7 +43,7 @@ import java.util.stream.Collectors;
  * Automated verification runs in three steps (driven by AsyncService) so that no database
  * transaction is open while R2 or the OCR provider is being called:
  * 1. startAutomatedVerification: short read-only transaction, returns what the OCR step needs;
- * 2. download + OCR, outside any transaction;
+ * 2. download + OCR (OcrInterface, provider-neutral), outside any transaction;
  * 3. completeAutomatedVerification / sendToManualReview: short transaction with the record locked.
  * Steps 1 and 3 only act on PENDING records, so a duplicate message or a manual approval that
  * happened in the meantime is left alone.
@@ -61,8 +58,6 @@ public class KycService {
     private final MemberKycRecordRepo kycRepository;
 
     private final StorageService storageService;
-
-    private final TextractClient textractClient;
 
     private final OutboxService outboxService;
 
@@ -253,10 +248,10 @@ public class KycService {
     }
 
     @Transactional
-    public void completeAutomatedVerification(UUID kycRecordId, Map<String, IdentityDocumentField> extractedData) {
+    public void completeAutomatedVerification(UUID kycRecordId, ExtractedIdDocument extracted) {
         MemberKycRecord record = lockPendingRecord(kycRecordId);
         if (record != null) {
-            verifyAndRoute(record, record.getMember(), extractedData);
+            verifyAndRoute(record, record.getMember(), extracted);
         }
     }
 
@@ -282,34 +277,15 @@ public class KycService {
 
     //  -----Helpers----
 
-    public Map<String, IdentityDocumentField> extractIdInformation(byte[] documentBytes) {
-        Document document = Document.builder()
-                .bytes(software.amazon.awssdk.core.SdkBytes.fromByteArray(documentBytes))
-                .build();
-
-        AnalyzeIdRequest request = AnalyzeIdRequest.builder()
-                .documentPages(document)
-                .build();
-
-        AnalyzeIdResponse response = textractClient.analyzeID(request);
-
-        // Map the extracted fields (FIRST_NAME, LAST_NAME, DATE_OF_BIRTH, etc.)
-        return response.identityDocuments().get(0).identityDocumentFields().stream()
-                .collect(Collectors.toMap(
-                        field -> field.type().text(),
-                        field -> field
-                ));
-    }
-
     // Matching rules are unchanged in 3.1 (first and last name at 85% confidence). Date of birth
     // and ID number matching come in roadmap 3.6.
-    void verifyAndRoute(MemberKycRecord record, Member member, Map<String, IdentityDocumentField> extractedData) {
-        IdentityDocumentField firstNameField = extractedData.get("FIRST_NAME");
-        IdentityDocumentField lastNameField = extractedData.get("LAST_NAME");
+    void verifyAndRoute(MemberKycRecord record, Member member, ExtractedIdDocument extracted) {
+        ExtractedValue firstName = extracted.get(IdDocumentField.FIRST_NAME).orElse(null);
+        ExtractedValue lastName = extracted.get(IdDocumentField.LAST_NAME).orElse(null);
 
-        if (firstNameField == null || lastNameField == null ||
-                firstNameField.valueDetection().confidence() < CONFIDENCE_THRESHOLD ||
-                lastNameField.valueDetection().confidence() < CONFIDENCE_THRESHOLD) {
+        if (firstName == null || lastName == null ||
+                firstName.confidence() < CONFIDENCE_THRESHOLD ||
+                lastName.confidence() < CONFIDENCE_THRESHOLD) {
 
             record.setStatus(KycStatus.MANUAL_REVIEW);
             record.setRejectionReason("Automated OCR confidence too low. Image may be blurry or obscured.");
@@ -317,18 +293,15 @@ public class KycService {
             return;
         }
 
-        String extractedFirstName = firstNameField.valueDetection().text();
-        String extractedLastName = lastNameField.valueDetection().text();
-
-        boolean nameMatches = member.getFirstName().equalsIgnoreCase(extractedFirstName) &&
-                member.getLastName().equalsIgnoreCase(extractedLastName);
+        boolean nameMatches = member.getFirstName().equalsIgnoreCase(firstName.text()) &&
+                member.getLastName().equalsIgnoreCase(lastName.text());
 
         if (nameMatches) {
             memberAccountService.activateMemberAccounts(member, record, VerificationMethod.AUTOMATED, null);
         } else {
             record.setStatus(KycStatus.MANUAL_REVIEW);
             record.setRejectionReason(String.format("Name mismatch. Profile: %s %s, ID: %s %s",
-                    member.getFirstName(), member.getLastName(), extractedFirstName, extractedLastName));
+                    member.getFirstName(), member.getLastName(), firstName.text(), lastName.text()));
             kycRepository.save(record);
         }
     }

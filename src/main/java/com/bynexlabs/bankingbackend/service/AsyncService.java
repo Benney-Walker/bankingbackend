@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.DTO.ocr.ExtractedIdDocument;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
@@ -11,15 +12,14 @@ import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
+import com.bynexlabs.bankingbackend.interfaces.OcrInterface;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import software.amazon.awssdk.services.textract.model.IdentityDocumentField;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,6 +37,8 @@ public class AsyncService {
     private final StorageService storageService;
 
     private final KycService kycService;
+
+    private final OcrInterface ocrService;
 
     private final ProcessedMessageService processedMessageService;
 
@@ -99,10 +101,10 @@ public class AsyncService {
             return;
         }
 
-        Map<String, IdentityDocumentField> extractedData;
+        ExtractedIdDocument extracted;
         try {
             byte[] document = storageService.downloadKycDocument(task.get().documentKey());
-            extractedData = kycService.extractIdInformation(document);
+            extracted = ocrService.extractIdDocument(document);
         } catch (Exception e) {
             // The document couldn't be read or analysed (storage/OCR outage, unreadable image):
             // a person decides instead of guessing.
@@ -114,6 +116,6 @@ public class AsyncService {
 
         // Outside the catch on purpose: a database failure here should retry the message, not
         // label the member's document as unreadable.
-        kycService.completeAutomatedVerification(recordId, extractedData);
+        kycService.completeAutomatedVerification(recordId, extracted);
     }
 }

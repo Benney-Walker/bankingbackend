@@ -148,9 +148,10 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Member registration and async account creation | Implemented; member timestamps fixed in 0.1 |
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
 | Automated KYC verification | Works end to end (3.1): R2 download and Textract OCR run outside database transactions; first name, last name, date of birth and ID number must all be read with ≥ 85% confidence and all match (3.6) for automatic activation; anything missing, unclear or different goes to `MANUAL_REVIEW` with a reason listing each problem. Dates are compared only through the OCR provider's ISO-normalised value, never guessed from printed text. OCR confirms the text matches; it doesn't prove the document is genuine |
-| Manual KYC approval | Implemented (ADMINISTRATOR, AGENT) |
+| Manual KYC approval and rejection | Implemented (ADMINISTRATOR only) |
 | Endpoint role permissions | Implemented for all current endpoints (1.1) |
-| Transactions, ledger postings, shares, SMS on collection | Not implemented (Phases 4–5) |
+| Transaction groundwork | Implemented (5.1): account row locking (`PESSIMISTIC_WRITE`), idempotency keys, amount rules. No money-moving endpoint yet |
+| Deposits, withdrawals, transfers, ledger postings, shares, SMS on collection | Not implemented; waits on the approved chart of accounts and posting rules (D15, D30) |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
 ### Completed increments
@@ -176,3 +177,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **3.5 ID number capture:** the KYC upload form sends `idNumber`; it's stored on the KYC record (V21), replaced on re-upload, and unique across members (checked before upload and enforced in the database). Ghana Card (`ECOWAS_CARD`) numbers must match `GHA-#########-#` (`IdNumberRules`); the Voter card format is pending the owner's confirmation.
 - **3.6 Full field matching:** automatic KYC approval now needs first name, last name, date of birth and ID number all at ≥ 85% OCR confidence and all matching (decision D11); otherwise manual review with an itemised reason.
 - **3.7 Review list and document viewing:** ADMINISTRATOR and AGENT can list KYC records by status, open one, and view the document image streamed through the backend (decision D13); administrators see all members, agents only members they registered; approving/rejecting stays ADMINISTRATOR-only.
+- **5.1 Transaction groundwork (no endpoints yet):** `AccountLockService` locks member accounts with PostgreSQL row locks (`PESSIMISTIC_WRITE`, i.e. `SELECT … FOR UPDATE`; owner decision 2026-11-07), so money movements on the same account run one at a time. Only ACTIVE accounts of ACTIVE members can be locked (409 otherwise; unknown → 404). Transfers lock both accounts in ascending ID order to prevent deadlocks; same account twice → 400. `TransactionService` handles idempotency keys: the same key with the same type, account and amount returns the recorded transaction instead of applying it again; the same key with a different request → 409, as does a simultaneous duplicate caught by the unique key. `MoneyRules`: amounts must be positive, at most 4 decimal places and fit `DECIMAL(19,4)`. Whether amounts are limited to 2 decimal places (pesewas) is undecided. Recorded transactions are final, with no reversals (D16).

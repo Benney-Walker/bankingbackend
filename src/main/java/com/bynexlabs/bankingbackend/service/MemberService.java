@@ -1,16 +1,26 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
+import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
+import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
+import com.bynexlabs.bankingbackend.Utility.PhoneNumberRules;
+import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +39,11 @@ public class MemberService {
 
     private final OutboxService outboxService;
 
+    private final MemberAccountRepo memberAccountRepo;
+
+    // Upper bound on the search page size, so one request can't pull the whole table.
+    static final int MAX_PAGE_SIZE = 100;
+
     public Member getMemberDetails(UUID memberId) {
         return memberRepository.findById(memberId).orElse(null);
     }
@@ -43,6 +58,7 @@ public class MemberService {
         // Validate the input before touching the database.
         AccountType accountType = parseSelectedAccountType(request.getAccountType());
         LocalDate dob = parseDateOfBirth(request.getDob());
+        PhoneNumberRules.requireLocalFormat(request.getPhoneNumber());
 
         if (memberRepository.existsByPhoneNumber(request.getPhoneNumber())) {
             throw new ConflictException("A member with this phone number already exists.");
@@ -75,6 +91,49 @@ public class MemberService {
                 "status", "success",
                 "Id", savedMember.getId()
         ));
+    }
+
+    /** Search by name, phone or account number; a blank query lists all members. */
+    @Transactional(readOnly = true)
+    public PagedModel<MemberSummaryResponse> searchMembers(String query, int page, int size) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
+        }
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("lastName", "firstName"));
+        Page<Member> members = (query == null || query.isBlank())
+                ? memberRepository.findAll(pageRequest)
+                : memberRepository.search(query.trim(), pageRequest);
+        return new PagedModel<>(members.map(MemberSummaryResponse::from));
+    }
+
+    @Transactional(readOnly = true)
+    public MemberProfileResponse getMemberProfile(UUID memberId) {
+        Member member = findMemberOrThrow(memberId);
+        return MemberProfileResponse.from(member, memberAccountRepo.findByMember_Id(memberId));
+    }
+
+    /**
+     * Owner rule (2026-11-07): after registration only the phone number, residential address and
+     * occupation can change. Everything else, including names and date of birth, is locked.
+     */
+    @Transactional
+    public MemberProfileResponse updateMemberContact(UUID memberId, MemberUpdateRequest request) {
+        Member member = findMemberOrThrow(memberId);
+        PhoneNumberRules.requireLocalFormat(request.getPhoneNumber());
+        if (memberRepository.existsByPhoneNumberAndIdNot(request.getPhoneNumber(), memberId)) {
+            throw new ConflictException("A member with this phone number already exists.");
+        }
+
+        member.setPhoneNumber(request.getPhoneNumber());
+        member.setResidentialAddress(request.getResidentialAddress());
+        member.setOccupation(request.getOccupation());
+        Member saved = memberRepository.save(member);
+        return MemberProfileResponse.from(saved, memberAccountRepo.findByMember_Id(memberId));
+    }
+
+    private Member findMemberOrThrow(UUID memberId) {
+        return memberRepository.findById(memberId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
     }
 
     // Every member gets a SHARES account automatically; the account chosen at registration is

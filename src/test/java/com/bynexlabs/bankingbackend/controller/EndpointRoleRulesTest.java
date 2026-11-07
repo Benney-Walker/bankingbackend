@@ -70,6 +70,21 @@ class EndpointRoleRulesTest {
     }
 
     @Test
+    void everyRoleSearchesAndViewsMembers() {
+        MemberController controller = new MemberController(null, null, null);
+        assertThat(rolesAllowedFor(controller, "searchMembers"))
+                .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT, Roles.COLLECTOR);
+        assertThat(rolesAllowedFor(controller, "getMember"))
+                .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT, Roles.COLLECTOR);
+    }
+
+    @Test
+    void administratorsAndAgentsEditMembers() {
+        assertThat(rolesAllowedFor(new MemberController(null, null, null), "updateMember"))
+                .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT);
+    }
+
+    @Test
     void administratorsAndAgentsRegisterMembers() {
         assertThat(rolesAllowedFor(new MemberController(null, null, null), "addNewMember"))
                 .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT);

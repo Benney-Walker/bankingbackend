@@ -1,12 +1,16 @@
 package com.bynexlabs.bankingbackend.controller;
 
 import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
+import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.service.KycService;
 import com.bynexlabs.bankingbackend.service.MemberService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.web.PagedModel;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +29,27 @@ public class MemberController {
     private final KycService kycService;
 
     private final AuthenticatedStaffProvider staffProvider;
+
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT', 'COLLECTOR')")
+    @GetMapping("/v1/search-members")
+    public PagedModel<MemberSummaryResponse> searchMembers(@RequestParam(required = false) String query,
+                                                           @RequestParam(defaultValue = "0") int page,
+                                                           @RequestParam(defaultValue = "20") int size) {
+        return memberService.searchMembers(query, page, size);
+    }
+
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT', 'COLLECTOR')")
+    @GetMapping("/v1/member-details/{memberId}")
+    public MemberProfileResponse getMember(@PathVariable UUID memberId) {
+        return memberService.getMemberProfile(memberId);
+    }
+
+    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
+    @PutMapping("/v1/update-member/{memberId}")
+    public MemberProfileResponse updateMember(@PathVariable UUID memberId,
+                                              @Valid @RequestBody MemberUpdateRequest request) {
+        return memberService.updateMemberContact(memberId, request);
+    }
 
     @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
     @PostMapping("/v1/add-member")

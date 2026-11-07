@@ -79,6 +79,17 @@ class MemberServiceTest {
     }
 
     @Test
+    void rejectsPhoneNumberNotInLocalFormat() {
+        MemberDetails details = registration("SAVINGS");
+        details.setPhoneNumber("+233241234567");
+
+        assertThatThrownBy(() -> memberService.registerNewMember(details))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Invalid phone number");
+        verifyNoInteractions(memberRepository, outboxService);
+    }
+
+    @Test
     void rejectsBadlyFormattedDateOfBirth() {
         MemberDetails details = registration("CURRENT");
         details.setDob("14/05/1990");

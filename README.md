@@ -71,7 +71,10 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | PUT | `/api/staff/v1/update-roles/{staffId}` | ADMINISTRATOR | Body `{ "roles": ["AGENT", …] }` is the complete new role set. Takes effect on the staff member's next request. Returns the updated staff |
 | POST | `/api/staff/v1/deactivate/{staffId}` | ADMINISTRATOR | Set status `INACTIVE`; blocks the staff member's API access immediately. Already inactive → no change |
 | POST | `/api/staff/v1/reactivate/{staffId}` | ADMINISTRATOR | Set status `ACTIVE`. Already active → no change |
-| POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance. `accountType` other than `SAVINGS`/`CURRENT` (including `SHARES`) or a `dob` not in yyyy-MM-dd → 400. Accounts are created asynchronously, normally within a moment |
+| GET | `/api/member/v1/search-members?query=&page=0&size=20` | ADMINISTRATOR, AGENT, COLLECTOR | Members sorted by last then first name; `query` (optional) matches part of a first, middle, last or full name, part of a phone number, or an exact account number. `size` 1–100. Same paged shape as the staff list; each item has `memberId`, names, `phoneNumber`, `membershipStatus` |
+| GET | `/api/member/v1/member-details/{memberId}` | ADMINISTRATOR, AGENT, COLLECTOR | Member details plus `accounts` (`accountNumber`, `accountType`, `status`; no balances). 404 if unknown |
+| PUT | `/api/member/v1/update-member/{memberId}` | ADMINISTRATOR, AGENT | Body `{ "phoneNumber", "residentialAddress", "occupation" }`, the only member fields that can change after registration; everything else is locked. Phone must be unique among members (409) |
+| POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance. `accountType` other than `SAVINGS`/`CURRENT` (including `SHARES`), a `dob` not in yyyy-MM-dd, or a `phoneNumber` that isn't 10 digits starting with 0 → 400. Accounts are created asynchronously, normally within a moment |
 | POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
 | POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified and activate the member and their accounts |
 
@@ -93,10 +96,10 @@ Every error uses the same JSON body:
 
 | Status | When |
 |---|---|
-| 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path), invalid staff phone number (must be 10 digits starting with 0), staff date of birth not in yyyy-MM-dd format, unknown staff role, staff list `page`/`size` out of range |
+| 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path), invalid staff or member phone number (must be exactly 10 digits starting with 0), staff date of birth not in yyyy-MM-dd format, unknown staff role, staff list `page`/`size` out of range |
 | 401 | Wrong staff ID or password (an inactive account gets the same response), invalid refresh token, a missing/expired access token, or a token belonging to staff who are no longer active |
 | 403 | Authenticated, but the staff member's role isn't allowed to call the endpoint |
-| 404 | Unknown path, or a record that doesn't exist (e.g. an unknown staff ID, or manual KYC approval for an unknown member) |
+| 404 | Unknown path, or a record that doesn't exist (e.g. an unknown staff ID or member, or manual KYC approval for an unknown member) |
 | 405 | HTTP method not supported by the endpoint |
 | 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone; an administrator deactivating themselves or removing their own `ADMINISTRATOR` role; any change that would leave no active administrator |
 | 500 | Anything unexpected; the body never contains internal details, which are logged instead |
@@ -155,3 +158,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **1.5c follow-ups:** SMS recipients converted to `+233…` for Vynfy; one reset code per staff ID per minute; add-staff passwords must be 8–72 characters; reset SMS wording approved.
 - **2.1 Reliable member registration:** member and both account-creation messages are saved in one transaction through a transactional outbox (V17); messages are sent right after commit, and a scheduled job retries unsent ones every `OUTBOX_RETRY_INTERVAL_MS`. Account type (SAVINGS/CURRENT only) and date of birth are validated up front (400). Delivery is at-least-once, which 2.2 makes safe.
 - **2.2 Duplicate-safe consumers and dead letters:** account-creation consumers skip redelivered messages (V18 `processed_messages`, keyed by message ID and consumer); listeners retry 3 times, then failed messages go to per-queue dead-letter queues. Requires the one-time queue deletion described under RabbitMQ messaging.
+- **2.3 Member search, details and contact update:** all roles can search and view members (no balances); ADMINISTRATOR and AGENT can change only phone, address and occupation. Member and staff phone numbers must be exactly 10 digits starting with 0 (`PhoneNumberRules`).

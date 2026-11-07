@@ -9,6 +9,7 @@ import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
+import com.bynexlabs.bankingbackend.Utility.PhoneNumberRules;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
@@ -197,11 +198,8 @@ public class StaffService {
         }
     }
 
-    // Staff phone numbers are stored in the local 10-digit format starting with 0.
     private void validatePhoneNumber(String phoneNumber) {
-        if (!phoneNumber.startsWith("0") || phoneNumber.length() != 10) {
-            throw new BadRequestException("Invalid phone number");
-        }
+        PhoneNumberRules.requireLocalFormat(phoneNumber);
     }
 
     @Transactional

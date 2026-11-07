@@ -126,6 +126,7 @@ class PasswordResetServiceTest {
     @Test
     void newRequestReplacesThePendingCodeAndResetsAttempts() {
         PasswordResetCode existing = pendingCode(2, LocalDateTime.now().plusMinutes(3));
+        existing.setCreatedAt(LocalDateTime.now().minusMinutes(7));
         String oldHash = existing.getCodeHash();
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
         when(resetCodeRepo.findByStaff_Id(staff.getId())).thenReturn(Optional.of(existing));
@@ -136,6 +137,27 @@ class PasswordResetServiceTest {
         verify(resetCodeRepo).save(existing);
         assertThat(existing.getCodeHash()).isNotEqualTo(oldHash);
         assertThat(existing.getFailedAttempts()).isZero();
+    }
+
+    @Test
+    void secondRequestWithinAMinuteSendsNothing() {
+        PasswordResetCode recent = pendingCode(0, LocalDateTime.now().plusMinutes(10));
+        recent.setCreatedAt(LocalDateTime.now().minusSeconds(30));
+        String hash = recent.getCodeHash();
+        when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
+        when(resetCodeRepo.findByStaff_Id(staff.getId())).thenReturn(Optional.of(recent));
+
+        service.requestReset(STAFF_ID);
+
+        verify(resetCodeRepo, never()).save(any());
+        verifyNoInteractions(smsService);
+        assertThat(recent.getCodeHash()).isEqualTo(hash);
+    }
+
+    @Test
+    void approvedSmsWording() {
+        assertThat(PasswordResetService.resetMessage("482913"))
+                .isEqualTo("Your password reset code is 482913. It expires in 10 minutes. Do not share it with anyone.");
     }
 
     @Test

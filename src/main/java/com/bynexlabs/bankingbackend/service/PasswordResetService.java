@@ -30,6 +30,9 @@ import java.time.LocalDateTime;
 public class PasswordResetService {
 
     static final Duration CODE_VALIDITY = Duration.ofMinutes(10);
+    // Owner rule: at most one code per staff ID per minute, so the request endpoint can't be
+    // used to run up SMS costs or flood a staff member's phone.
+    static final Duration RESEND_COOLDOWN = Duration.ofMinutes(1);
     static final int MAX_FAILED_ATTEMPTS = 3;
     static final String INVALID_CODE_MESSAGE = "Invalid or expired reset code";
 
@@ -58,12 +61,18 @@ public class PasswordResetService {
             return;
         }
 
-        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
         LocalDateTime now = LocalDateTime.now();
 
-        // One pending code per staff member: a new request replaces the previous code.
+        // One pending code per staff member: a new request replaces the previous code, unless
+        // that code was issued within the cooldown, in which case nothing is sent.
         PasswordResetCode resetCode = resetCodeRepo.findByStaff_Id(staff.getId())
                 .orElseGet(() -> PasswordResetCode.builder().staff(staff).build());
+        if (resetCode.getCreatedAt() != null && resetCode.getCreatedAt().plus(RESEND_COOLDOWN).isAfter(now)) {
+            log.info("Password reset for staff {} requested again within the cooldown; no new code sent", staffId);
+            return;
+        }
+
+        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
         resetCode.setCodeHash(passwordEncoder.encode(code));
         resetCode.setExpiresAt(now.plus(CODE_VALIDITY));
         resetCode.setFailedAttempts(0);
@@ -113,7 +122,7 @@ public class PasswordResetService {
         log.info("Password reset completed for staff {}", staffId);
     }
 
-    // Proposed wording; the final text is the owner's call.
+    // Wording approved by the owner (2026-11-07).
     static String resetMessage(String code) {
         return "Your password reset code is " + code + ". It expires in "
                 + CODE_VALIDITY.toMinutes() + " minutes. Do not share it with anyone.";

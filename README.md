@@ -9,7 +9,7 @@ Spring Boot API for a single credit union. It serves the staff desktop applicati
 - RabbitMQ for internal asynchronous work (account creation, KYC verification)
 - Cloudflare R2 (S3-compatible, private bucket `kyc-documents`) for KYC documents
 - AWS Textract for KYC OCR (provider not final)
-- Vynfy for SMS (used for staff password-reset codes)
+- Vynfy for SMS (used for staff password-reset codes). Vynfy only accepts international numbers, so stored local numbers (`0241234567`) are sent as `+233241234567`
 - JWT (JJWT) for staff authentication
 
 ## Prerequisites
@@ -61,9 +61,9 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 |---|---|---|---|
 | POST | `/api/auth/v1/login` | Public | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
 | POST | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body; returns `{ "authToken": ... }` |
-| POST | `/api/auth/v1/password-reset/request` | Public | Body `{ "staffId" }`. If it's an ACTIVE staff member, a 6-digit code is texted to their phone (Vynfy). Always returns the same 200 message, whether or not the staff ID exists |
+| POST | `/api/auth/v1/password-reset/request` | Public | Body `{ "staffId" }`. If it's an ACTIVE staff member, a 6-digit code is texted to their phone (Vynfy). At most one code per staff ID per minute; repeats within the minute send nothing. Always returns the same 200 message, whether or not the staff ID exists |
 | POST | `/api/auth/v1/password-reset/confirm` | Public | Body `{ "staffId", "code", "newPassword" }`. Code valid 10 minutes, 3 wrong attempts allowed, then a new code is needed. Password 8–72 characters. Wrong/expired code → 400 `Invalid or expired reset code` |
-| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR` |
+| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR`; password 8–72 characters |
 | GET | `/api/staff/v1/all-staff?page=0&size=20` | ADMINISTRATOR | Staff list sorted by staff ID; `size` 1–100. Returns `{ "content": [staff…], "page": { "size", "number", "totalElements", "totalPages" } }` |
 | GET | `/api/staff/v1/staff-details/{staffId}` | ADMINISTRATOR | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | ADMINISTRATOR | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress`. Same validation and duplicate checks as add-staff, ignoring the staff member being edited. Returns the updated staff |
@@ -141,3 +141,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **1.5b Staff roles and status:** ADMINISTRATOR-only role replacement, deactivation and reactivation, with the owner's lockout rule (no self-deactivation, no self-demotion, always at least one active administrator).
 - **Immediate role changes (D32):** `JwtAuthenticationFilter` takes roles from the database (with status, in one query) instead of the token.
 - **1.5c Staff password reset:** public request/confirm endpoints from a reset page; 6-digit SMS code, stored only as a BCrypt hash (migration V16, `password_reset_codes`), valid 10 minutes, 3 attempts, active staff only; administrators can't reset other people's passwords. Email delivery waits for an email provider.
+- **1.5c follow-ups:** SMS recipients converted to `+233…` for Vynfy; one reset code per staff ID per minute; add-staff passwords must be 8–72 characters; reset SMS wording approved.

@@ -9,6 +9,8 @@ import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import com.bynexlabs.bankingbackend.enums.AccountType;
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.Staff;
@@ -42,6 +44,9 @@ class MemberServiceTest {
     private MemberRepository memberRepository;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private OutboxService outboxService;
 
     @InjectMocks
@@ -65,7 +70,7 @@ class MemberServiceTest {
     void registrationWithoutStaffIsUnauthorized() {
         assertThatThrownBy(() -> memberService.registerNewMember(registration("SAVINGS"), null))
                 .isInstanceOf(UnauthorizedException.class);
-        verifyNoInteractions(memberRepository, outboxService);
+        verifyNoInteractions(memberRepository, outboxService, auditLogService);
     }
 
     @Test
@@ -86,7 +91,7 @@ class MemberServiceTest {
         assertThatThrownBy(() -> memberService.registerNewMember(registration(accountType), registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Account type must be SAVINGS or CURRENT");
-        verifyNoInteractions(memberRepository, outboxService);
+        verifyNoInteractions(memberRepository, outboxService, auditLogService);
     }
 
     @Test
@@ -97,7 +102,7 @@ class MemberServiceTest {
         assertThatThrownBy(() -> memberService.registerNewMember(details, registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Invalid phone number");
-        verifyNoInteractions(memberRepository, outboxService);
+        verifyNoInteractions(memberRepository, outboxService, auditLogService);
     }
 
     @Test
@@ -108,7 +113,7 @@ class MemberServiceTest {
         assertThatThrownBy(() -> memberService.registerNewMember(details, registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Invalid date of birth; expected yyyy-MM-dd");
-        verifyNoInteractions(memberRepository, outboxService);
+        verifyNoInteractions(memberRepository, outboxService, auditLogService);
     }
 
     @Test
@@ -139,5 +144,7 @@ class MemberServiceTest {
                 eq(RabbitMQConfig.EXCHANGE_NAME),
                 eq(RabbitMQConfig.OTHER_ACCOUNT_CREATION_ROUTING_KEY),
                 eq(OtherAccountCreationEvent.builder().memberId(memberId).accountType(AccountType.CURRENT).build()));
+        verify(auditLogService).recordAs("900105", AuditAction.MEMBER_REGISTERED, AuditTargetType.MEMBER, memberId,
+                "Selected account CURRENT");
     }
 }

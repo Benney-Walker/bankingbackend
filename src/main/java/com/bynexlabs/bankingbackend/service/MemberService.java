@@ -14,6 +14,8 @@ import com.bynexlabs.bankingbackend.Utility.PhoneNumberRules;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
 import com.bynexlabs.bankingbackend.enums.AccountType;
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.Staff;
@@ -30,7 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -42,6 +47,8 @@ public class MemberService {
     private final OutboxService outboxService;
 
     private final MemberAccountRepo memberAccountRepo;
+
+    private final AuditLogService auditLogService;
 
     // Upper bound on the search page size, so one request can't pull the whole table.
     static final int MAX_PAGE_SIZE = 100;
@@ -94,6 +101,8 @@ public class MemberService {
                 .build();
         outboxService.enqueue(RabbitMQConfig.EXCHANGE_NAME,
                 RabbitMQConfig.OTHER_ACCOUNT_CREATION_ROUTING_KEY, otherEvent);
+        auditLogService.recordAs(registeredBy.getStaffId(), AuditAction.MEMBER_REGISTERED,
+                AuditTargetType.MEMBER, savedMember.getId(), "Selected account " + accountType);
         return ResponseEntity.ok(Map.of(
                 "status", "success",
                 "Id", savedMember.getId()
@@ -131,10 +140,20 @@ public class MemberService {
             throw new ConflictException("A member with this phone number already exists.");
         }
 
+        // Field names only: the audit log records what changed, not the contact details themselves.
+        List<String> changed = new ArrayList<>();
+        if (!Objects.equals(member.getPhoneNumber(), request.getPhoneNumber())) changed.add("phoneNumber");
+        if (!Objects.equals(member.getResidentialAddress(), request.getResidentialAddress())) changed.add("residentialAddress");
+        if (!Objects.equals(member.getOccupation(), request.getOccupation())) changed.add("occupation");
+
         member.setPhoneNumber(request.getPhoneNumber());
         member.setResidentialAddress(request.getResidentialAddress());
         member.setOccupation(request.getOccupation());
         Member saved = memberRepository.save(member);
+        if (!changed.isEmpty()) {
+            auditLogService.record(AuditAction.MEMBER_CONTACT_UPDATED, AuditTargetType.MEMBER, memberId,
+                    "Changed: " + String.join(", ", changed));
+        }
         return MemberProfileResponse.from(saved, memberAccountRepo.findByMember_Id(memberId));
     }
 

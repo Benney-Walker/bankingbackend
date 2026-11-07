@@ -25,6 +25,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,6 +49,9 @@ class StaffRolesAndStatusServiceTest {
     private StaffRepo staffRepo;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private StaffRolesRepo staffRolesRepo;
 
     @Mock
@@ -58,7 +64,7 @@ class StaffRolesAndStatusServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder());
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService);
     }
 
     private Staff staff(String staffId, StaffStatus status, Roles... roles) {
@@ -118,6 +124,7 @@ class StaffRolesAndStatusServiceTest {
         assertThat(response.getStatus()).isEqualTo(StaffStatus.INACTIVE);
         assertThat(agent.getUpdatedAt()).isAfter(LocalDateTime.of(2026, 1, 5, 9, 0));
         verify(staffRepo).save(agent);
+        verify(auditLogService).record(AuditAction.STAFF_DEACTIVATED, AuditTargetType.STAFF, TARGET, null);
     }
 
     @Test
@@ -128,6 +135,7 @@ class StaffRolesAndStatusServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(StaffStatus.INACTIVE);
         verify(staffRepo, never()).save(any());
+        verifyNoInteractions(auditLogService);
     }
 
     @Test
@@ -139,6 +147,7 @@ class StaffRolesAndStatusServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(StaffStatus.ACTIVE);
         verify(staffRepo).save(collector);
+        verify(auditLogService).record(AuditAction.STAFF_REACTIVATED, AuditTargetType.STAFF, TARGET, null);
     }
 
     // --- roles ---

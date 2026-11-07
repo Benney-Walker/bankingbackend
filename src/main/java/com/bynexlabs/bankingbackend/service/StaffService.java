@@ -11,6 +11,8 @@ import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
 import com.bynexlabs.bankingbackend.Utility.PhoneNumberRules;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
@@ -34,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -47,6 +50,8 @@ public class StaffService {
     private final IdGenerator idGenerator;
 
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
+
+    private final AuditLogService auditLogService;
 
     // Upper bound on the staff list page size, so one request can't pull the whole table.
     static final int MAX_PAGE_SIZE = 100;
@@ -89,8 +94,19 @@ public class StaffService {
             throw new ConflictException("Email already exist");
         }
 
+        // Field names only: the audit log records what changed, not the personal details themselves.
+        String newMiddleName = request.getMiddleName() == null ? " " : request.getMiddleName();
+        List<String> changed = new ArrayList<>();
+        if (!Objects.equals(staff.getFirstName(), request.getFirstName())) changed.add("firstName");
+        if (!Objects.equals(staff.getMiddleName(), newMiddleName)) changed.add("middleName");
+        if (!Objects.equals(staff.getLastName(), request.getLastName())) changed.add("lastName");
+        if (!Objects.equals(staff.getDateOfBirth(), dob)) changed.add("dateOfBirth");
+        if (!Objects.equals(staff.getPhoneNumber(), request.getPhoneNumber())) changed.add("phoneNumber");
+        if (!Objects.equals(staff.getEmail(), request.getEmail())) changed.add("email");
+        if (!Objects.equals(staff.getResidentialAddress(), request.getResidentialAddress())) changed.add("residentialAddress");
+
         staff.setFirstName(request.getFirstName());
-        staff.setMiddleName(request.getMiddleName() == null ? " " : request.getMiddleName());
+        staff.setMiddleName(newMiddleName);
         staff.setLastName(request.getLastName());
         staff.setDateOfBirth(dob);
         staff.setPhoneNumber(request.getPhoneNumber());
@@ -98,7 +114,12 @@ public class StaffService {
         staff.setResidentialAddress(request.getResidentialAddress());
         staff.setUpdatedAt(LocalDateTime.now());
 
-        return StaffResponse.from(staffRepo.save(staff));
+        Staff saved = staffRepo.save(staff);
+        if (!changed.isEmpty()) {
+            auditLogService.record(AuditAction.STAFF_PROFILE_UPDATED, AuditTargetType.STAFF, staffId,
+                    "Changed: " + String.join(", ", changed));
+        }
+        return StaffResponse.from(saved);
     }
 
     /**
@@ -113,6 +134,8 @@ public class StaffService {
         requested.addAll(parseRoles(request.getRoles()));
 
         List<StaffRoles> currentRoles = staff.getRoles() == null ? new ArrayList<>() : staff.getRoles();
+        Set<Roles> before = EnumSet.noneOf(Roles.class);
+        currentRoles.stream().map(StaffRoles::getRole).forEach(before::add);
         boolean losesAdministrator = currentRoles.stream().anyMatch(r -> r.getRole() == Roles.ADMINISTRATOR)
                 && !requested.contains(Roles.ADMINISTRATOR);
         if (losesAdministrator) {
@@ -140,6 +163,10 @@ public class StaffService {
 
         staff.setUpdatedAt(LocalDateTime.now());
         staffRepo.save(staff);
+        if (!before.equals(requested)) {
+            auditLogService.record(AuditAction.STAFF_ROLES_CHANGED, AuditTargetType.STAFF, staffId,
+                    "Roles " + before + " -> " + requested);
+        }
         return StaffResponse.from(staff);
     }
 
@@ -162,6 +189,7 @@ public class StaffService {
         staff.setStaffStatus(StaffStatus.INACTIVE);
         staff.setUpdatedAt(LocalDateTime.now());
         staffRepo.save(staff);
+        auditLogService.record(AuditAction.STAFF_DEACTIVATED, AuditTargetType.STAFF, staffId, null);
         return StaffResponse.from(staff);
     }
 
@@ -172,6 +200,7 @@ public class StaffService {
             staff.setStaffStatus(StaffStatus.ACTIVE);
             staff.setUpdatedAt(LocalDateTime.now());
             staffRepo.save(staff);
+            auditLogService.record(AuditAction.STAFF_REACTIVATED, AuditTargetType.STAFF, staffId, null);
         }
         return StaffResponse.from(staff);
     }
@@ -244,6 +273,7 @@ public class StaffService {
         staffRepo.save(staff);
 
         saveStaffRoles(staff, roles);
+        auditLogService.record(AuditAction.STAFF_CREATED, AuditTargetType.STAFF, newStaffId, "Roles " + roles);
 
         //Asynchronous task will be here later
         return ResponseEntity.ok().build();

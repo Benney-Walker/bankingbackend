@@ -43,6 +43,9 @@ class StaffServiceTest {
     private StaffRepo staffRepo;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private StaffRolesRepo staffRolesRepo;
 
     @Mock
@@ -58,7 +61,7 @@ class StaffServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService);
     }
 
     private StaffDetails newStaff(List<String> roles) {

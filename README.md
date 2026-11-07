@@ -55,7 +55,7 @@ There is no bootstrap for the first administrator yet (roadmap increment 1.4), a
 
 ## API (current)
 
-All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Only ACTIVE staff can log in, refresh a token or use one: the access token's owner is checked against the database on every request, so deactivating a staff member takes effect immediately. Each endpoint declares the roles allowed to call it with `@PreAuthorize` (owner-approved, 2026-11-06); any other role gets 403. Every new endpoint must declare its roles too, and `EndpointRoleRulesTest` fails if one doesn't.
+All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Only ACTIVE staff can log in, refresh a token or use one. On every request the token's owner is loaded from the database and their current status and roles decide access, so deactivation and role changes take effect immediately; the `roles` claim inside the token is informational only. Each endpoint declares the roles allowed to call it with `@PreAuthorize` (owner-approved, 2026-11-06); any other role gets 403. Every new endpoint must declare its roles too, and `EndpointRoleRulesTest` fails if one doesn't.
 
 | Method | Path | Roles | Purpose |
 |---|---|---|---|
@@ -65,7 +65,7 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | GET | `/api/staff/v1/all-staff?page=0&size=20` | ADMINISTRATOR | Staff list sorted by staff ID; `size` 1–100. Returns `{ "content": [staff…], "page": { "size", "number", "totalElements", "totalPages" } }` |
 | GET | `/api/staff/v1/staff-details/{staffId}` | ADMINISTRATOR | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | ADMINISTRATOR | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress`. Same validation and duplicate checks as add-staff, ignoring the staff member being edited. Returns the updated staff |
-| PUT | `/api/staff/v1/update-roles/{staffId}` | ADMINISTRATOR | Body `{ "roles": ["AGENT", …] }` is the complete new role set. Takes effect for that staff member at their next login or token refresh. Returns the updated staff |
+| PUT | `/api/staff/v1/update-roles/{staffId}` | ADMINISTRATOR | Body `{ "roles": ["AGENT", …] }` is the complete new role set. Takes effect on the staff member's next request. Returns the updated staff |
 | POST | `/api/staff/v1/deactivate/{staffId}` | ADMINISTRATOR | Set status `INACTIVE`; blocks the staff member's API access immediately. Already inactive → no change |
 | POST | `/api/staff/v1/reactivate/{staffId}` | ADMINISTRATOR | Set status `ACTIVE`. Already active → no change |
 | POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus a `SAVINGS` or `CURRENT` account, both inactive with zero balance |
@@ -136,3 +136,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **1.3 Refresh-token method:** `/api/auth/v1/refresh-token` is now `POST` (decision D4); `GET` returns 405. Clients must update their call.
 - **1.5a Staff list, details and profile update:** ADMINISTRATOR-only endpoints to page through staff, view one, and update profile details; an invalid staff date of birth now returns 400 instead of 500.
 - **1.5b Staff roles and status:** ADMINISTRATOR-only role replacement, deactivation and reactivation, with the owner's lockout rule (no self-deactivation, no self-demotion, always at least one active administrator).
+- **Immediate role changes (D32):** `JwtAuthenticationFilter` takes roles from the database (with status, in one query) instead of the token.

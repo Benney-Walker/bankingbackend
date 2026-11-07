@@ -6,6 +6,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
+import com.bynexlabs.bankingbackend.models.Staff;
+import com.bynexlabs.bankingbackend.models.StaffRoles;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -50,18 +52,18 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
         try {
             String username = jwtUtility.extractUsername(token);
 
-            // Access tokens stay valid until they expire, so a staff member deactivated after
-            // logging in could keep using theirs. Checking the current status on every request
-            // closes that window; unknown or inactive staff are left unauthenticated (401).
-            boolean active = staffRepo.findStatusByStaffId(username)
-                    .map(status -> status == StaffStatus.ACTIVE)
-                    .orElse(false);
+            // Access tokens stay valid until they expire, so status and roles are read from the
+            // database on every request rather than trusted from the token. Deactivation and role
+            // changes therefore apply immediately (owner decision D32); unknown or inactive staff
+            // are left unauthenticated (401). The token's roles claim is informational only.
+            Staff staff = staffRepo.findWithRolesByStaffId(username)
+                    .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
+                    .orElse(null);
 
-            if (active) {
-                List<String> roles = jwtUtility.extractRoles(token);
-
-                List<GrantedAuthority> authorities = (roles == null ? List.<String>of() : roles).stream()
-                        .map(SimpleGrantedAuthority::new)
+            if (staff != null) {
+                List<GrantedAuthority> authorities = (staff.getRoles() == null ? List.<StaffRoles>of() : staff.getRoles())
+                        .stream()
+                        .map(role -> new SimpleGrantedAuthority(role.getRole().name()))
                         .collect(Collectors.toUnmodifiableList());
 
                 UsernamePasswordAuthenticationToken authentication =

@@ -1,6 +1,5 @@
 package com.bynexlabs.bankingbackend.Repository;
 
-import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -16,10 +15,10 @@ import java.util.UUID;
 public interface StaffRepo extends JpaRepository<Staff, UUID> {
     Optional<Staff> findByStaffId(String staffId);
 
-    // Status only, so the per-request check in JwtAuthenticationFilter doesn't load the whole
-    // staff row (or its lazy roles) outside a transaction.
-    @Query("select s.staffStatus from Staff s where s.staffId = :staffId")
-    Optional<StaffStatus> findStatusByStaffId(@Param("staffId") String staffId);
+    // Used by JwtAuthenticationFilter on every request. Roles are fetched in the same query
+    // because the filter runs outside a transaction, where the lazy collection can't load.
+    @Query("select distinct s from Staff s left join fetch s.roles where s.staffId = :staffId")
+    Optional<Staff> findWithRolesByStaffId(@Param("staffId") String staffId);
 
     boolean existsByFirstNameAndLastNameAndDateOfBirth(
             String firstName, String lastName, LocalDate dateOfBirth

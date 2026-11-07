@@ -1,7 +1,10 @@
 package com.bynexlabs.bankingbackend.Utility;
 
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
+import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
+import com.bynexlabs.bankingbackend.models.Staff;
+import com.bynexlabs.bankingbackend.models.StaffRoles;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +19,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -56,11 +60,24 @@ class JwtAuthenticationFilterTest {
         when(jwtUtility.extractUsername(TOKEN)).thenReturn(staffId);
     }
 
+    private Staff staff(String staffId, StaffStatus status, Roles... roles) {
+        Staff staff = Staff.builder().staffId(staffId).staffStatus(status).build();
+        List<StaffRoles> rows = new ArrayList<>();
+        for (Roles role : roles) {
+            StaffRoles row = new StaffRoles();
+            row.setStaff(staff);
+            row.setRole(role);
+            rows.add(row);
+        }
+        staff.setRoles(rows);
+        return staff;
+    }
+
     @Test
-    void activeStaffIsAuthenticatedWithTokenRoles() throws Exception {
+    void activeStaffIsAuthenticatedWithRolesFromTheDatabase() throws Exception {
         givenValidTokenFor("900100");
-        when(staffRepo.findStatusByStaffId("900100")).thenReturn(Optional.of(StaffStatus.ACTIVE));
-        when(jwtUtility.extractRoles(TOKEN)).thenReturn(List.of("AGENT"));
+        when(staffRepo.findWithRolesByStaffId("900100"))
+                .thenReturn(Optional.of(staff("900100", StaffStatus.ACTIVE, Roles.AGENT, Roles.COLLECTOR)));
 
         runFilterWithToken();
 
@@ -69,24 +86,40 @@ class JwtAuthenticationFilterTest {
         assertThat(authentication.getName()).isEqualTo("900100");
         assertThat(authentication.getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
+                .containsExactlyInAnyOrder("AGENT", "COLLECTOR");
+    }
+
+    // D32: a role removed by an administrator stops working on the next request, even though
+    // the staff member's existing access token still carries the old role.
+    @Test
+    void tokenRolesAreIgnoredSoRoleRemovalIsImmediate() throws Exception {
+        givenValidTokenFor("900102");
+        when(staffRepo.findWithRolesByStaffId("900102"))
+                .thenReturn(Optional.of(staff("900102", StaffStatus.ACTIVE, Roles.AGENT)));
+
+        runFilterWithToken();
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
                 .containsExactly("AGENT");
+        verify(jwtUtility, never()).extractRoles(any());
     }
 
     @Test
     void inactiveStaffWithValidTokenIsNotAuthenticated() throws Exception {
         givenValidTokenFor("900101");
-        when(staffRepo.findStatusByStaffId("900101")).thenReturn(Optional.of(StaffStatus.INACTIVE));
+        when(staffRepo.findWithRolesByStaffId("900101"))
+                .thenReturn(Optional.of(staff("900101", StaffStatus.INACTIVE, Roles.ADMINISTRATOR)));
 
         runFilterWithToken();
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        verify(jwtUtility, never()).extractRoles(any());
     }
 
     @Test
     void unknownStaffWithValidTokenIsNotAuthenticated() throws Exception {
         givenValidTokenFor("900999");
-        when(staffRepo.findStatusByStaffId("900999")).thenReturn(Optional.empty());
+        when(staffRepo.findWithRolesByStaffId("900999")).thenReturn(Optional.empty());
 
         runFilterWithToken();
 

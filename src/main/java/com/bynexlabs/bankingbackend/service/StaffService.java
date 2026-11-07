@@ -102,8 +102,8 @@ public class StaffService {
 
     /**
      * Replaces the staff member's roles with the requested set. Only the difference is written,
-     * so unchanged roles keep their rows. The change reaches the staff member's API access the
-     * next time they log in or refresh their access token, because roles travel in the token.
+     * so unchanged roles keep their rows. JwtAuthenticationFilter reads roles from the database,
+     * so the change applies to the staff member's next request.
      */
     @Transactional
     public StaffResponse updateStaffRoles(String staffId, StaffRolesRequest request, String actingStaffId) {

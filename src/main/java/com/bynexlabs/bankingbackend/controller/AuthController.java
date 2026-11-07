@@ -20,7 +20,9 @@ public class AuthController {
         return authService.staffAuthentication(loginRequest);
     }
 
-    @GetMapping("/v1/refresh-token")
+    // POST rather than GET: the refresh token travels in the JSON body, and GET bodies are
+    // dropped by some clients and proxies.
+    @PostMapping("/v1/refresh-token")
     public ResponseEntity<?> refreshToken(@Valid @RequestBody RefreshRequest refreshRequest) {
         return authService.refreshAccessToken(refreshRequest);
     }

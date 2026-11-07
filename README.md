@@ -60,7 +60,7 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | Method | Path | Roles | Purpose |
 |---|---|---|---|
 | POST | `/api/auth/v1/login` | Public | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
-| GET | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body (method change pending, D4) |
+| POST | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body; returns `{ "authToken": ... }` |
 | POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR` |
 | POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus a `SAVINGS` or `CURRENT` account, both inactive with zero balance |
 | POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
@@ -125,3 +125,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **0.3 Error handling and logging:** one error body for every endpoint (decided 2026-11-06), domain exceptions instead of hand-built error responses, 400/404/405 handling for malformed requests and unknown paths (previously 500), and SLF4J logging instead of `System.out`/`System.err`; unexpected errors are logged with their stack trace.
 - **1.2 Active-staff enforcement and auth fixes:** inactive staff are rejected at login, on refresh and on every request; login authorities use role names; staff phone check fixed (`&&` → `||`) and, with unknown roles, now returns 400 (decision D5a); CORS origins moved to `app.cors.allowed-origins` with the trailing-slash origin fixed; duplicate AMQP starter removed from `pom.xml`.
 - **1.1 Endpoint role checks:** method security enabled; add-staff is ADMINISTRATOR only; member registration, KYC upload and manual KYC approval are ADMINISTRATOR or AGENT; `@PreAuthorize` denials return 403 instead of 500.
+- **1.3 Refresh-token method:** `/api/auth/v1/refresh-token` is now `POST` (decision D4); `GET` returns 405. Clients must update their call.

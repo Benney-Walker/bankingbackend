@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.Utility;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -51,6 +52,13 @@ class GlobalExceptionHandlerTest {
         ResponseEntity<Map<String, Object>> response = handler.handleAccessDenied(request);
 
         assertStandardBody(response, 403, "Forbidden", "You do not have permission to perform this action");
+    }
+
+    @Test
+    void uploadOverTheServletLimitIsPayloadTooLarge() {
+        ResponseEntity<Map<String, Object>> response = handler.handleUploadTooLarge(request);
+
+        assertStandardBody(response, 413, HttpStatus.valueOf(413).getReasonPhrase(), "The KYC document must be 5 MB or smaller");
     }
 
     @Test

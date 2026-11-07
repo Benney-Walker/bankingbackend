@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -23,15 +24,15 @@ public class StorageService {
     @Value("${cloudflare.r2.bucket-name}")
     private String bucketName;
 
-    public String uploadKycDocument(MultipartFile file, UUID memberId) throws IOException {
-        String fileExtension = getFileExtension(file.getOriginalFilename());
-
-        String objectKey = "kyc/" + memberId.toString() + "/" + UUID.randomUUID() + fileExtension;
+    // The extension and content type come from the validated file contents (KycUploadRules),
+    // never from the client-supplied name or header.
+    public String uploadKycDocument(MultipartFile file, UUID memberId, KycUploadRules.ImageType imageType) throws IOException {
+        String objectKey = "kyc/" + memberId.toString() + "/" + UUID.randomUUID() + imageType.extension();
 
         PutObjectRequest putOb = PutObjectRequest.builder()
                 .bucket(bucketName)
                 .key(objectKey)
-                .contentType(file.getContentType())
+                .contentType(imageType.contentType())
                 .build();
 
         s3Client.putObject(
@@ -55,10 +56,4 @@ public class StorageService {
         return objectBytes.asByteArray();
     }
 
-    private String getFileExtension(String fileName) {
-        if (fileName != null && fileName.contains(".")) {
-            return fileName.substring(fileName.lastIndexOf("."));
-        }
-        return "";
-    }
 }

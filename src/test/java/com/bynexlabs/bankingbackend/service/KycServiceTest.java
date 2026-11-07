@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
+import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.web.MockMultipartFile;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.textract.model.AnalyzeIDDetections;
@@ -63,8 +65,9 @@ class KycServiceTest {
 
     private final UUID memberId = UUID.randomUUID();
     private final UUID recordId = UUID.randomUUID();
-    private final MockMultipartFile file =
-            new MockMultipartFile("file", "card.jpg", "image/jpeg", new byte[]{1, 2, 3});
+    // Starts with the JPEG signature, so it passes KycUploadRules.
+    private static final byte[] JPEG_BYTES = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10, 'J', 'F', 'I', 'F'};
+    private final MockMultipartFile file = new MockMultipartFile("file", "card.jpg", "image/jpeg", JPEG_BYTES);
 
     @BeforeEach
     void setUp() {
@@ -124,8 +127,9 @@ class KycServiceTest {
     void submissionStoresAPendingRecordAndQueuesVerificationThroughTheOutbox() throws Exception {
         Member member = member();
         when(memberRepository.findById(memberId)).thenReturn(Optional.of(member));
-        when(storageService.uploadKycDocument(file, memberId)).thenReturn("kyc/" + memberId + "/x.jpg");
-        when(kycRepository.save(any(MemberKycRecord.class))).thenAnswer(invocation -> {
+        when(storageService.uploadKycDocument(file, memberId, KycUploadRules.ImageType.JPEG))
+                .thenReturn("kyc/" + memberId + "/x.jpg");
+        when(kycRepository.saveAndFlush(any(MemberKycRecord.class))).thenAnswer(invocation -> {
             MemberKycRecord saved = invocation.getArgument(0);
             saved.setId(recordId);
             return saved;
@@ -134,13 +138,46 @@ class KycServiceTest {
         kycService.submitKyc(memberId, "voter_card", file);
 
         ArgumentCaptor<MemberKycRecord> saved = ArgumentCaptor.forClass(MemberKycRecord.class);
-        verify(kycRepository).save(saved.capture());
+        verify(kycRepository).saveAndFlush(saved.capture());
         assertThat(saved.getValue().getStatus()).isEqualTo(KycStatus.PENDING);
         assertThat(saved.getValue().getDocumentType()).isEqualTo(KycDocumentType.VOTER_CARD);
         assertThat(saved.getValue().getDocumentUrl()).isEqualTo("kyc/" + memberId + "/x.jpg");
         assertThat(saved.getValue().getVerifiedAt()).isNull();
         verify(outboxService).enqueue(RabbitMQConfig.EXCHANGE_NAME, RabbitMQConfig.KYC_VERIFICATION_ROUTING_KEY,
                 KycVerificationEvent.builder().kycRecordId(recordId).build());
+    }
+
+    @Test
+    void secondSubmissionIsRefusedBeforeUploading() throws Exception {
+        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member()));
+        when(kycRepository.existsByMember_Id(memberId)).thenReturn(true);
+
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", file))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("A KYC document has already been submitted for this member");
+        verifyNoInteractions(storageService, outboxService);
+    }
+
+    @Test
+    void simultaneousSecondSubmissionHittingTheConstraintIsAConflict() throws Exception {
+        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member()));
+        when(storageService.uploadKycDocument(file, memberId, KycUploadRules.ImageType.JPEG)).thenReturn("kyc/k.jpg");
+        when(kycRepository.saveAndFlush(any(MemberKycRecord.class)))
+                .thenThrow(new DataIntegrityViolationException("uq_member_kyc_records_member"));
+
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", file))
+                .isInstanceOf(ConflictException.class);
+        verifyNoInteractions(outboxService);
+    }
+
+    @Test
+    void nonImageFileIsRejectedBeforeAnyDatabaseWork() {
+        MockMultipartFile pdf = new MockMultipartFile("file", "card.jpg", "image/jpeg", "%PDF-1.7".getBytes());
+
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", pdf))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("The KYC document must be a JPEG or PNG image");
+        verifyNoInteractions(memberRepository, kycRepository, storageService);
     }
 
     // --- automated verification steps ---

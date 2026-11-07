@@ -15,6 +15,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -105,6 +106,13 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         return error(HttpStatus.BAD_REQUEST, "Missing required part '" + ex.getRequestPartName() + "'", request);
+    }
+
+    // The servlet multipart limit (spring.servlet.multipart.max-file-size) is hit before the
+    // controller runs; without this it fell through to a 500.
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleUploadTooLarge(HttpServletRequest request) {
+        return error(PayloadTooLargeException.STATUS, KycUploadRules.TOO_LARGE_MESSAGE, request);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

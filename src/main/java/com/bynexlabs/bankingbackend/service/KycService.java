@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
+import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
@@ -15,6 +16,7 @@ import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberKycRecord;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -73,12 +75,19 @@ public class KycService {
     public ResponseEntity<?> submitKyc(UUID memberId, String documentType, MultipartFile file) {
         // Check the request before uploading anything, so bad input leaves no orphaned file in R2.
         KycDocumentType type = parseDocumentType(documentType);
+        KycUploadRules.ImageType imageType = KycUploadRules.validate(file);
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        // Owner rules: one KYC record per member (enforced by V19), and no re-upload unless a
+        // manual review rejected the document. Rejection doesn't exist yet, so every re-upload
+        // is refused for now.
+        if (kycRepository.existsByMember_Id(memberId)) {
+            throw new ConflictException("A KYC document has already been submitted for this member");
+        }
 
         String documentKey;
         try {
-            documentKey = storageService.uploadKycDocument(file, memberId);
+            documentKey = storageService.uploadKycDocument(file, memberId, imageType);
         } catch (IOException e) {
             throw new UncheckedIOException("Could not read the uploaded KYC document", e);
         }
@@ -89,7 +98,13 @@ public class KycService {
         kycRecord.setStatus(KycStatus.PENDING);
         kycRecord.setCreatedAt(LocalDateTime.now());
         kycRecord.setDocumentUrl(documentKey);
-        MemberKycRecord savedRecord = kycRepository.save(kycRecord);
+        MemberKycRecord savedRecord;
+        try {
+            // Flush now so a simultaneous second upload hits the unique constraint here, as a 409.
+            savedRecord = kycRepository.saveAndFlush(kycRecord);
+        } catch (DataIntegrityViolationException e) {
+            throw new ConflictException("A KYC document has already been submitted for this member");
+        }
 
         // Through the outbox: the verification message exists only if the record committed,
         // so the consumer can never look for a record that isn't saved yet.

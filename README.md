@@ -75,7 +75,7 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | GET | `/api/member/v1/member-details/{memberId}` | ADMINISTRATOR, AGENT, COLLECTOR | Member details plus `accounts` (`accountNumber`, `accountType`, `status`; no balances). 404 if unknown |
 | PUT | `/api/member/v1/update-member/{memberId}` | ADMINISTRATOR, AGENT | Body `{ "phoneNumber", "residentialAddress", "occupation" }`, the only member fields that can change after registration; everything else is locked. Phone must be unique among members (409) |
 | POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance. `accountType` other than `SAVINGS`/`CURRENT` (including `SHARES`), a `dob` not in yyyy-MM-dd, or a `phoneNumber` that isn't 10 digits starting with 0 → 400. Accounts are created asynchronously, normally within a moment |
-| POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`, case-insensitive), `file`. Stores the document in the private R2 bucket, creates a `PENDING` KYC record and queues automated verification. Unknown document type → 400 and unknown member → 404, both before anything is uploaded |
+| POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`, case-insensitive), `file` (**JPEG or PNG, at most 5 MB**, judged by the file's content, not its name). Stores the document in the private R2 bucket, creates a `PENDING` KYC record and queues automated verification. One KYC submission per member: a second upload → 409 (re-upload after a rejection isn't available yet). Unknown document type, non-JPEG/PNG or empty file → 400; over 5 MB → 413; unknown member → 404; all before anything is uploaded |
 | POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified (method `MANUAL`, approving staff recorded) and activate the member and their accounts. 404 unknown member; 409 if the member hasn't submitted a KYC document |
 
 Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
@@ -101,7 +101,8 @@ Every error uses the same JSON body:
 | 403 | Authenticated, but the staff member's role isn't allowed to call the endpoint |
 | 404 | Unknown path, or a record that doesn't exist (e.g. an unknown staff ID or member, or manual KYC approval for an unknown member) |
 | 405 | HTTP method not supported by the endpoint |
-| 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone; an administrator deactivating themselves or removing their own `ADMINISTRATOR` role; any change that would leave no active administrator |
+| 413 | Uploaded file larger than 5 MB |
+| 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone, a second KYC submission for the same member; an administrator deactivating themselves or removing their own `ADMINISTRATOR` role; any change that would leave no active administrator |
 | 500 | Anything unexpected; the body never contains internal details, which are logged instead |
 
 Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
@@ -128,6 +129,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V16 | `password_reset_codes`: at most one pending reset code per staff member (hash, expiry, failed attempts); deleted with the staff record |
 | V17 | `outbox_events`: RabbitMQ messages saved with the change they announce, sent after commit and retried until sent |
 | V18 | `processed_messages`: message IDs each consumer has already handled, for skipping duplicate deliveries |
+| V19 | Unique `member_kyc_records.member_id`: one KYC record per member. Stops with a clear message if existing data already has a member with two records |
 
 ## Status
 
@@ -162,3 +164,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **2.2 Duplicate-safe consumers and dead letters:** account-creation consumers skip redelivered messages (V18 `processed_messages`, keyed by message ID and consumer); listeners retry 3 times, then failed messages go to per-queue dead-letter queues. Requires the one-time queue deletion described under RabbitMQ messaging.
 - **2.3 Member search, details and contact update:** all roles can search and view members (no balances); ADMINISTRATOR and AGENT can change only phone, address and occupation. Member and staff phone numbers must be exactly 10 digits starting with 0 (`PhoneNumberRules`).
 - **3.1 Automated KYC fixed:** the bucket name is now read correctly (download moved into `StorageService`); verification runs as read → external calls → write, without holding a transaction during R2/OCR; the KYC message goes through the outbox; upload validates document type and member before uploading; manual approval returns 409 when there's no KYC submission instead of a 500; `RabbitMQProducer` removed (everything uses the outbox). Account numbers keep their current format (decision D7).
+- **3.2 (part) and 3.3 KYC upload rules:** one KYC record per member, enforced in the database (V19) and checked before upload (409); JPEG/PNG only, detected from the file's bytes; 5 MB maximum (app check plus `spring.servlet.multipart.max-file-size=5MB`; over the limit → 413). Stored objects use the detected extension and content type. Re-upload after a rejected review is pending owner clarification.

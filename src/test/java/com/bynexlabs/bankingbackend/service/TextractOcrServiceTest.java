@@ -14,6 +14,8 @@ import software.amazon.awssdk.services.textract.model.AnalyzeIdRequest;
 import software.amazon.awssdk.services.textract.model.AnalyzeIdResponse;
 import software.amazon.awssdk.services.textract.model.IdentityDocument;
 import software.amazon.awssdk.services.textract.model.IdentityDocumentField;
+import software.amazon.awssdk.services.textract.model.NormalizedValue;
+import software.amazon.awssdk.services.textract.model.ValueType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +62,21 @@ class TextractOcrServiceTest {
         assertThat(result.get(IdDocumentField.DOCUMENT_NUMBER)).contains(new ExtractedValue("GHA-123456789-0", 91f));
         assertThat(result.get(IdDocumentField.MIDDLE_NAME)).isEmpty();
         assertThat(result.fields()).hasSize(4);
+    }
+
+    @Test
+    void keepsTextractsNormalisedDate() {
+        givenTextractReturns(IdentityDocumentField.builder()
+                .type(AnalyzeIDDetections.builder().text("DATE_OF_BIRTH").build())
+                .valueDetection(AnalyzeIDDetections.builder()
+                        .text("14/05/1990")
+                        .normalizedValue(NormalizedValue.builder().value("1990-05-14T00:00:00").valueType(ValueType.DATE).build())
+                        .confidence(96f)
+                        .build())
+                .build());
+
+        assertThat(ocrService.extractIdDocument(new byte[]{1}).get(IdDocumentField.DATE_OF_BIRTH))
+                .contains(new ExtractedValue("14/05/1990", "1990-05-14T00:00:00", 96f));
     }
 
     @Test

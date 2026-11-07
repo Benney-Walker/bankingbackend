@@ -56,9 +56,12 @@ public class TextractOcrService implements OcrInterface {
             IdDocumentField mapped = TEXTRACT_FIELDS.get(field.type().text());
             if (mapped != null) {
                 Float confidence = field.valueDetection().confidence();
+                // Textract normalises dates to ISO (e.g. 1990-05-14T00:00:00) in normalizedValue.
+                String normalized = field.valueDetection().normalizedValue() == null
+                        ? null : field.valueDetection().normalizedValue().value();
                 // Textract reports confidence as 0-100, the scale ExtractedValue expects.
                 fields.putIfAbsent(mapped, new ExtractedValue(
-                        field.valueDetection().text(), confidence == null ? 0f : confidence));
+                        field.valueDetection().text(), normalized, confidence == null ? 0f : confidence));
             }
         }
         return new ExtractedIdDocument(fields);

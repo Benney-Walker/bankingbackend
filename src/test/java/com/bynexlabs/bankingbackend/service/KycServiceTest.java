@@ -30,6 +30,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -99,6 +101,7 @@ class KycServiceTest {
         member.setId(memberId);
         member.setFirstName("Ama");
         member.setLastName("Mensah");
+        member.setDateOfBirth(LocalDate.of(1990, 5, 14));
         member.setRegisteredBy(registeredBy);
         return member;
     }
@@ -109,13 +112,32 @@ class KycServiceTest {
         record.setMember(member(registrar));
         record.setStatus(status);
         record.setDocumentUrl("kyc/" + memberId + "/old.jpg");
+        record.setIdNumber(ID_NUMBER);
         return record;
     }
 
-    private static ExtractedIdDocument ocr(String first, String last, float confidence) {
-        return new ExtractedIdDocument(Map.of(
-                IdDocumentField.FIRST_NAME, new ExtractedValue(first, confidence),
-                IdDocumentField.LAST_NAME, new ExtractedValue(last, confidence)));
+    /** OCR result matching the test member, with each field overridable. */
+    private static Map<IdDocumentField, ExtractedValue> matchingOcr() {
+        Map<IdDocumentField, ExtractedValue> fields = new HashMap<>();
+        fields.put(IdDocumentField.FIRST_NAME, new ExtractedValue("AMA", 97f));
+        fields.put(IdDocumentField.LAST_NAME, new ExtractedValue("MENSAH", 97f));
+        fields.put(IdDocumentField.DATE_OF_BIRTH, new ExtractedValue("14/05/1990", "1990-05-14T00:00:00", 96f));
+        fields.put(IdDocumentField.DOCUMENT_NUMBER, new ExtractedValue("GHA-123456789-0", 95f));
+        return fields;
+    }
+
+    private static ExtractedIdDocument ocr(Map<IdDocumentField, ExtractedValue> fields) {
+        return new ExtractedIdDocument(fields);
+    }
+
+    private static ExtractedIdDocument ocrWith(IdDocumentField field, ExtractedValue value) {
+        Map<IdDocumentField, ExtractedValue> fields = matchingOcr();
+        if (value == null) {
+            fields.remove(field);
+        } else {
+            fields.put(field, value);
+        }
+        return ocr(fields);
     }
 
     private void givenSaveAndFlushAssignsId() {
@@ -309,37 +331,72 @@ class KycServiceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    // D11: all four fields read with 85%+ confidence and all match -> automatic approval.
     @Test
-    void matchingNamesActivateAutomatically() {
+    void allFourFieldsMatchingActivateAutomatically() {
         MemberKycRecord record = record(KycStatus.PENDING);
         when(kycRepository.lockById(recordId)).thenReturn(Optional.of(record));
 
-        kycService.completeAutomatedVerification(recordId, ocr("AMA", "mensah", 97f));
+        kycService.completeAutomatedVerification(recordId, ocr(matchingOcr()));
 
         verify(memberAccountService).activateMemberAccounts(record.getMember(), record, VerificationMethod.AUTOMATED, null);
     }
 
     @Test
-    void nameMismatchGoesToManualReview() {
+    void ocrSpacesInIdNumberAreIgnored() {
         MemberKycRecord record = record(KycStatus.PENDING);
         when(kycRepository.lockById(recordId)).thenReturn(Optional.of(record));
 
-        kycService.completeAutomatedVerification(recordId, ocr("Akosua", "Mensah", 97f));
+        kycService.completeAutomatedVerification(recordId,
+                ocrWith(IdDocumentField.DOCUMENT_NUMBER, new ExtractedValue("GHA- 123456789 -0", 95f)));
+
+        verify(memberAccountService).activateMemberAccounts(record.getMember(), record, VerificationMethod.AUTOMATED, null);
+    }
+
+    private void assertManualReview(ExtractedIdDocument extracted, String reasonContains) {
+        MemberKycRecord record = record(KycStatus.PENDING);
+        when(kycRepository.lockById(recordId)).thenReturn(Optional.of(record));
+
+        kycService.completeAutomatedVerification(recordId, extracted);
 
         assertThat(record.getStatus()).isEqualTo(KycStatus.MANUAL_REVIEW);
-        assertThat(record.getRejectionReason()).startsWith("Name mismatch");
+        assertThat(record.getRejectionReason()).contains(reasonContains);
         verify(memberAccountService, never()).activateMemberAccounts(any(), any(), any(), any());
     }
 
     @Test
-    void lowConfidenceGoesToManualReview() {
-        MemberKycRecord record = record(KycStatus.PENDING);
-        when(kycRepository.lockById(recordId)).thenReturn(Optional.of(record));
+    void firstNameMismatchGoesToManualReview() {
+        assertManualReview(ocrWith(IdDocumentField.FIRST_NAME, new ExtractedValue("AKOSUA", 97f)), "first name");
+    }
 
-        kycService.completeAutomatedVerification(recordId, ocr("Ama", "Mensah", 60f));
+    @Test
+    void dateOfBirthMismatchGoesToManualReview() {
+        assertManualReview(ocrWith(IdDocumentField.DATE_OF_BIRTH,
+                new ExtractedValue("14/05/1991", "1991-05-14T00:00:00", 96f)), "date of birth (profile 1990-05-14, document 1991-05-14)");
+    }
 
-        assertThat(record.getStatus()).isEqualTo(KycStatus.MANUAL_REVIEW);
-        verify(memberAccountService, never()).activateMemberAccounts(any(), any(), any(), any());
+    // Printed dates like 05/06/1990 are ambiguous, so without the provider's ISO value nothing is guessed.
+    @Test
+    void dateOfBirthWithoutNormalisedValueGoesToManualReview() {
+        assertManualReview(ocrWith(IdDocumentField.DATE_OF_BIRTH, new ExtractedValue("14/05/1990", 96f)),
+                "could not be read as a date");
+    }
+
+    @Test
+    void idNumberMismatchGoesToManualReview() {
+        assertManualReview(ocrWith(IdDocumentField.DOCUMENT_NUMBER, new ExtractedValue("GHA-987654321-0", 95f)),
+                "ID number");
+    }
+
+    @Test
+    void lowConfidenceOnAnyFieldGoesToManualReview() {
+        assertManualReview(ocrWith(IdDocumentField.DOCUMENT_NUMBER, new ExtractedValue("GHA-123456789-0", 84.9f)),
+                "could not read with enough confidence: ID number");
+    }
+
+    @Test
+    void missingFieldGoesToManualReview() {
+        assertManualReview(ocrWith(IdDocumentField.DATE_OF_BIRTH, null), "date of birth");
     }
 
     @Test
@@ -347,7 +404,7 @@ class KycServiceTest {
         MemberKycRecord record = record(KycStatus.REJECTED);
         when(kycRepository.lockById(recordId)).thenReturn(Optional.of(record));
 
-        kycService.completeAutomatedVerification(recordId, ocr("Ama", "Mensah", 97f));
+        kycService.completeAutomatedVerification(recordId, ocr(matchingOcr()));
         kycService.sendToManualReview(recordId, "OCR failed");
 
         assertThat(record.getStatus()).isEqualTo(KycStatus.REJECTED);

@@ -33,7 +33,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
+import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -286,32 +290,83 @@ public class KycService {
 
     //  -----Helpers----
 
-    // Matching rules are unchanged in 3.1 (first and last name at 85% confidence). Date of birth
-    // and ID number matching come in roadmap 3.6.
+    /**
+     * Owner rules (2026-11-07): first name, last name, date of birth and ID number must each be read
+     * with at least 85% confidence and must all match what was entered, or the record goes to
+     * manual review. Nothing is guessed: an unreadable or ambiguous value is treated as no match.
+     * OCR matching confirms the document's text agrees with the entered details; it does not prove
+     * the document is genuine.
+     */
     void verifyAndRoute(MemberKycRecord record, Member member, ExtractedIdDocument extracted) {
-        ExtractedValue firstName = extracted.get(IdDocumentField.FIRST_NAME).orElse(null);
-        ExtractedValue lastName = extracted.get(IdDocumentField.LAST_NAME).orElse(null);
-
-        if (firstName == null || lastName == null ||
-                firstName.confidence() < CONFIDENCE_THRESHOLD ||
-                lastName.confidence() < CONFIDENCE_THRESHOLD) {
-
-            record.setStatus(KycStatus.MANUAL_REVIEW);
-            record.setRejectionReason("Automated OCR confidence too low. Image may be blurry or obscured.");
-            kycRepository.save(record);
+        List<String> unreadable = new ArrayList<>();
+        ExtractedValue firstName = confidentValue(extracted, IdDocumentField.FIRST_NAME, "first name", unreadable);
+        ExtractedValue lastName = confidentValue(extracted, IdDocumentField.LAST_NAME, "last name", unreadable);
+        ExtractedValue dateOfBirth = confidentValue(extracted, IdDocumentField.DATE_OF_BIRTH, "date of birth", unreadable);
+        ExtractedValue idNumber = confidentValue(extracted, IdDocumentField.DOCUMENT_NUMBER, "ID number", unreadable);
+        if (!unreadable.isEmpty()) {
+            sendRecordToManualReview(record, "Automated OCR could not read with enough confidence: "
+                    + String.join(", ", unreadable) + ". Image may be blurry or obscured.");
             return;
         }
 
-        boolean nameMatches = member.getFirstName().equalsIgnoreCase(firstName.text()) &&
-                member.getLastName().equalsIgnoreCase(lastName.text());
+        List<String> mismatches = new ArrayList<>();
+        if (!sameText(member.getFirstName(), firstName.text())) {
+            mismatches.add(String.format("first name (profile '%s', document '%s')", member.getFirstName(), firstName.text()));
+        }
+        if (!sameText(member.getLastName(), lastName.text())) {
+            mismatches.add(String.format("last name (profile '%s', document '%s')", member.getLastName(), lastName.text()));
+        }
+        LocalDate documentDob = isoDate(dateOfBirth.normalizedText());
+        if (documentDob == null) {
+            mismatches.add(String.format("date of birth (document '%s' could not be read as a date)", dateOfBirth.text()));
+        } else if (!documentDob.equals(member.getDateOfBirth())) {
+            mismatches.add(String.format("date of birth (profile %s, document %s)", member.getDateOfBirth(), documentDob));
+        }
+        if (record.getIdNumber() == null || !sameIdNumber(record.getIdNumber(), idNumber.text())) {
+            mismatches.add(String.format("ID number (entered '%s', document '%s')", record.getIdNumber(), idNumber.text()));
+        }
 
-        if (nameMatches) {
+        if (mismatches.isEmpty()) {
             memberAccountService.activateMemberAccounts(member, record, VerificationMethod.AUTOMATED, null);
         } else {
-            record.setStatus(KycStatus.MANUAL_REVIEW);
-            record.setRejectionReason(String.format("Name mismatch. Profile: %s %s, ID: %s %s",
-                    member.getFirstName(), member.getLastName(), firstName.text(), lastName.text()));
-            kycRepository.save(record);
+            sendRecordToManualReview(record, "Details did not match: " + String.join("; ", mismatches));
+        }
+    }
+
+    private static ExtractedValue confidentValue(ExtractedIdDocument extracted, IdDocumentField field,
+                                                 String label, List<String> unreadable) {
+        ExtractedValue value = extracted.get(field).orElse(null);
+        if (value == null || value.text() == null || value.text().isBlank() || value.confidence() < CONFIDENCE_THRESHOLD) {
+            unreadable.add(label);
+            return null;
+        }
+        return value;
+    }
+
+    private void sendRecordToManualReview(MemberKycRecord record, String reason) {
+        record.setStatus(KycStatus.MANUAL_REVIEW);
+        record.setRejectionReason(reason);
+        kycRepository.save(record);
+    }
+
+    private static boolean sameText(String entered, String read) {
+        return entered != null && entered.trim().equalsIgnoreCase(read.trim());
+    }
+
+    // Typed numbers are stored trimmed and upper-cased; spaces OCR may insert are ignored too.
+    private static boolean sameIdNumber(String entered, String read) {
+        return entered.replaceAll("\\s", "").equalsIgnoreCase(read.replaceAll("\\s", ""));
+    }
+
+    // Only the provider's ISO-normalised date is trusted (see ExtractedValue); anything else is null.
+    private static LocalDate isoDate(String normalized) {
+        if (normalized == null || normalized.length() < 10) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(normalized.substring(0, 10));
+        } catch (DateTimeParseException e) {
+            return null;
         }
     }
 

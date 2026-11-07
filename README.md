@@ -144,7 +144,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Staff creation | Implemented; persistence fixed in 0.1 (staff IDs are now generated) |
 | Member registration and async account creation | Implemented; member timestamps fixed in 0.1 |
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
-| Automated KYC verification | Works end to end (3.1): R2 download and Textract OCR run outside database transactions; matching names (≥ 85% confidence) activate automatically, anything else goes to `MANUAL_REVIEW`. Compares first and last name only; date of birth and ID number come in 3.6 |
+| Automated KYC verification | Works end to end (3.1): R2 download and Textract OCR run outside database transactions; first name, last name, date of birth and ID number must all be read with ≥ 85% confidence and all match (3.6) for automatic activation; anything missing, unclear or different goes to `MANUAL_REVIEW` with a reason listing each problem. Dates are compared only through the OCR provider's ISO-normalised value, never guessed from printed text. OCR confirms the text matches; it doesn't prove the document is genuine |
 | Manual KYC approval | Implemented (ADMINISTRATOR, AGENT) |
 | Endpoint role permissions | Implemented for all current endpoints (1.1) |
 | Transactions, ledger postings, shares, SMS on collection | Not implemented (Phases 4–5) |
@@ -171,3 +171,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **3.2 completed + manual rejection (part of 3.7):** members record who registered them (V20); ADMINISTRATOR-only manual approval **and** rejection (reason required), only for documents under review; after a rejection, only the registering staff member can upload a replacement, which resets the record to `PENDING`, re-runs verification and deletes the old file after commit.
 - **3.4 OCR provider abstraction:** `OcrInterface` returns provider-neutral `ExtractedIdDocument` values (first, middle and last name, date of birth, document number, each with a 0–100 confidence); all Textract code lives in `TextractOcrService`. Matching behaviour is unchanged.
 - **3.5 ID number capture:** the KYC upload form sends `idNumber`; it's stored on the KYC record (V21), replaced on re-upload, and unique across members (checked before upload and enforced in the database). Ghana Card (`ECOWAS_CARD`) numbers must match `GHA-#########-#` (`IdNumberRules`); the Voter card format is pending the owner's confirmation.
+- **3.6 Full field matching:** automatic KYC approval now needs first name, last name, date of birth and ID number all at ≥ 85% OCR confidence and all matching (decision D11); otherwise manual review with an itemised reason.

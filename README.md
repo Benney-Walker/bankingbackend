@@ -103,6 +103,14 @@ Every error uses the same JSON body:
 
 Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
 
+## RabbitMQ messaging
+
+- Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue` and `kyc_verification_queue`.
+- **Retries and dead letters:** a message whose listener throws gets 3 retries (1 s, 2 s, 4 s). After that it's rejected and moved to its dead-letter queue (`default_share_account_dead_letter_queue`, `other_account_creation_dead_letter_queue` or `kyc_verification_dead_letter_queue`) through the exchange `cash_client_ecosystem_dead_letter`, keeping its original routing key. Failed messages never loop forever. Inspect dead-letter queues in the RabbitMQ management UI.
+- **Duplicates:** account-creation messages come from the outbox and carry its ID as the AMQP message ID. The consumers record that ID in `processed_messages` in the same transaction as the account, and skip a message they've already handled.
+
+> **One-time step when upgrading from a version before 2.2:** the three work queues now carry a dead-letter argument, and RabbitMQ refuses to redeclare an existing queue with different arguments. Once they're empty, delete `default_share_account_queue`, `other_account_creation_queue` and `kyc_verification_queue` in the RabbitMQ management UI (or `rabbitmqctl delete_queue <name>`) before starting the new version, which recreates them. Messages waiting in the outbox aren't affected.
+
 ## Database migrations
 
 Migrations are in `src/main/resources/db/migration` and are never edited once applied; every schema change gets the next version number.
@@ -114,6 +122,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V15 | `id_entity.id` becomes an identity column, starting after any existing rows, so `IdGenerator` can create its first counters |
 | V16 | `password_reset_codes`: at most one pending reset code per staff member (hash, expiry, failed attempts); deleted with the staff record |
 | V17 | `outbox_events`: RabbitMQ messages saved with the change they announce, sent after commit and retried until sent |
+| V18 | `processed_messages`: message IDs each consumer has already handled, for skipping duplicate deliveries |
 
 ## Status
 
@@ -144,4 +153,5 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Immediate role changes (D32):** `JwtAuthenticationFilter` takes roles from the database (with status, in one query) instead of the token.
 - **1.5c Staff password reset:** public request/confirm endpoints from a reset page; 6-digit SMS code, stored only as a BCrypt hash (migration V16, `password_reset_codes`), valid 10 minutes, 3 attempts, active staff only; administrators can't reset other people's passwords. Email delivery waits for an email provider.
 - **1.5c follow-ups:** SMS recipients converted to `+233…` for Vynfy; one reset code per staff ID per minute; add-staff passwords must be 8–72 characters; reset SMS wording approved.
-- **2.1 Reliable member registration:** member and both account-creation messages are saved in one transaction through a transactional outbox (V17); messages are sent right after commit, and a scheduled job retries unsent ones every `OUTBOX_RETRY_INTERVAL_MS`. Account type (SAVINGS/CURRENT only) and date of birth are validated up front (400). Delivery is at-least-once; consumers become duplicate-safe in 2.2.
+- **2.1 Reliable member registration:** member and both account-creation messages are saved in one transaction through a transactional outbox (V17); messages are sent right after commit, and a scheduled job retries unsent ones every `OUTBOX_RETRY_INTERVAL_MS`. Account type (SAVINGS/CURRENT only) and date of birth are validated up front (400). Delivery is at-least-once, which 2.2 makes safe.
+- **2.2 Duplicate-safe consumers and dead letters:** account-creation consumers skip redelivered messages (V18 `processed_messages`, keyed by message ID and consumer); listeners retry 3 times, then failed messages go to per-queue dead-letter queues. Requires the one-time queue deletion described under RabbitMQ messaging.

@@ -13,6 +13,7 @@ import com.bynexlabs.bankingbackend.enums.KycStatus;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import com.bynexlabs.bankingbackend.models.MemberKycRecord;
+import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -39,8 +40,15 @@ public class AsyncService {
 
     private final KycService kycService;
 
+    private final ProcessedMessageService processedMessageService;
+
+    // messageId is the outbox ID; a redelivered message is skipped instead of creating a
+    // second account.
     @Transactional
-    public void createDefaultSharesAccount(SharesAccountEvent sharesAccountEvent) {
+    public void createDefaultSharesAccount(SharesAccountEvent sharesAccountEvent, String messageId) {
+        if (!processedMessageService.markFirstDelivery(messageId, RabbitMQConfig.DEFAULT_SHARES_ACCOUNT_QUEUE_NAME)) {
+            return;
+        }
         Member member = memberService.getMemberDetails(sharesAccountEvent.getMemberId());
         if (member == null) {
             throw new RuntimeException("Error: member not found");
@@ -58,7 +66,10 @@ public class AsyncService {
     }
 
     @Transactional
-    public void createOtherAccount(OtherAccountCreationEvent otherEvent) {
+    public void createOtherAccount(OtherAccountCreationEvent otherEvent, String messageId) {
+        if (!processedMessageService.markFirstDelivery(messageId, RabbitMQConfig.OTHER_ACCOUNT_CREATION_QUEUE_NAME)) {
+            return;
+        }
         Member member = memberService.getMemberDetails(otherEvent.getMemberId());
         if (member == null) {
             throw new RuntimeException("Error: member not found");

@@ -12,9 +12,11 @@ import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.PhoneNumberRules;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
+import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
+import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -54,7 +56,10 @@ public class MemberService {
      * accounts because RabbitMQ was unavailable at the time.
      */
     @Transactional
-    public ResponseEntity<?> registerNewMember(MemberDetails request) {
+    public ResponseEntity<?> registerNewMember(MemberDetails request, Staff registeredBy) {
+        if (registeredBy == null) {
+            throw new UnauthorizedException("Staff account not found or inactive");
+        }
         // Validate the input before touching the database.
         AccountType accountType = parseSelectedAccountType(request.getAccountType());
         LocalDate dob = parseDateOfBirth(request.getDob());
@@ -73,6 +78,8 @@ public class MemberService {
         member.setResidentialAddress(request.getResidentialAddress());
         member.setOccupation(request.getOccupation());
         member.setMembershipStatus(MembershipStatus.PENDING);
+        // Recorded because only this staff member may re-upload the member's KYC after a rejection.
+        member.setRegisteredBy(registeredBy);
         Member savedMember = memberRepository.save(member);
 
         SharesAccountEvent sharesAccountEvent = SharesAccountEvent.builder()

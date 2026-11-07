@@ -6,10 +6,12 @@ import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
+import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
+import com.bynexlabs.bankingbackend.models.Staff;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -45,6 +47,8 @@ class MemberServiceTest {
     @InjectMocks
     private MemberService memberService;
 
+    private final Staff registrar = Staff.builder().id(UUID.randomUUID()).staffId("900105").build();
+
     private MemberDetails registration(String accountType) {
         return MemberDetails.builder()
                 .firstName("Ama")
@@ -58,10 +62,17 @@ class MemberServiceTest {
     }
 
     @Test
+    void registrationWithoutStaffIsUnauthorized() {
+        assertThatThrownBy(() -> memberService.registerNewMember(registration("SAVINGS"), null))
+                .isInstanceOf(UnauthorizedException.class);
+        verifyNoInteractions(memberRepository, outboxService);
+    }
+
+    @Test
     void rejectsDuplicatePhoneNumberWithoutSavingOrQueueingAccounts() {
         when(memberRepository.existsByPhoneNumber("0241234567")).thenReturn(true);
 
-        assertThatThrownBy(() -> memberService.registerNewMember(registration("SAVINGS")))
+        assertThatThrownBy(() -> memberService.registerNewMember(registration("SAVINGS"), registrar))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("A member with this phone number already exists.");
         verify(memberRepository, never()).save(any());
@@ -72,7 +83,7 @@ class MemberServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"SHARES", "FIXED_DEPOSIT", "savingz"})
     void rejectsAccountTypeOtherThanSavingsOrCurrentBeforeAnyDatabaseWork(String accountType) {
-        assertThatThrownBy(() -> memberService.registerNewMember(registration(accountType)))
+        assertThatThrownBy(() -> memberService.registerNewMember(registration(accountType), registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Account type must be SAVINGS or CURRENT");
         verifyNoInteractions(memberRepository, outboxService);
@@ -83,7 +94,7 @@ class MemberServiceTest {
         MemberDetails details = registration("SAVINGS");
         details.setPhoneNumber("+233241234567");
 
-        assertThatThrownBy(() -> memberService.registerNewMember(details))
+        assertThatThrownBy(() -> memberService.registerNewMember(details, registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Invalid phone number");
         verifyNoInteractions(memberRepository, outboxService);
@@ -94,7 +105,7 @@ class MemberServiceTest {
         MemberDetails details = registration("CURRENT");
         details.setDob("14/05/1990");
 
-        assertThatThrownBy(() -> memberService.registerNewMember(details))
+        assertThatThrownBy(() -> memberService.registerNewMember(details, registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Invalid date of birth; expected yyyy-MM-dd");
         verifyNoInteractions(memberRepository, outboxService);
@@ -109,7 +120,7 @@ class MemberServiceTest {
             return member;
         });
 
-        ResponseEntity<?> response = memberService.registerNewMember(registration("current"));
+        ResponseEntity<?> response = memberService.registerNewMember(registration("current"), registrar);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(((Map<?, ?>) response.getBody()).get("Id")).isEqualTo(memberId);
@@ -118,6 +129,7 @@ class MemberServiceTest {
         verify(memberRepository).save(savedMember.capture());
         assertThat(savedMember.getValue().getMembershipStatus()).isEqualTo(MembershipStatus.PENDING);
         assertThat(savedMember.getValue().getDateOfBirth()).isEqualTo(LocalDate.of(1990, 5, 14));
+        assertThat(savedMember.getValue().getRegisteredBy()).isSameAs(registrar);
 
         verify(outboxService).enqueue(
                 eq(RabbitMQConfig.EXCHANGE_NAME),

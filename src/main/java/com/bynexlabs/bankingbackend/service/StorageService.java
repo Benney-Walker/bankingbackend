@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -44,6 +45,14 @@ public class StorageService {
         );
 
         return objectKey;
+    }
+
+    /** Removes a KYC document that has been replaced by a newer upload. */
+    public void deleteKycDocument(String objectKey) {
+        s3Client.deleteObject(DeleteObjectRequest.builder()
+                .bucket(bucketName)
+                .key(objectKey)
+                .build());
     }
 
     /** Reads a KYC document back from the private bucket by its object key. */

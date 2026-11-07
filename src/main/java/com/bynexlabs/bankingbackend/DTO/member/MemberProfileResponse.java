@@ -34,6 +34,8 @@ public class MemberProfileResponse {
     private String residentialAddress;
     private String occupation;
     private MembershipStatus membershipStatus;
+    // Staff ID of whoever registered the member; null for members registered before V20.
+    private String registeredByStaffId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private List<AccountSummary> accounts;
@@ -58,6 +60,7 @@ public class MemberProfileResponse {
                 .residentialAddress(member.getResidentialAddress())
                 .occupation(member.getOccupation())
                 .membershipStatus(member.getMembershipStatus())
+                .registeredByStaffId(member.getRegisteredBy() == null ? null : member.getRegisteredBy().getStaffId())
                 .createdAt(member.getCreatedAt())
                 .updatedAt(member.getUpdatedAt())
                 .accounts(accounts.stream()

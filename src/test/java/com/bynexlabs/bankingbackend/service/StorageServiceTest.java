@@ -10,6 +10,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -46,6 +47,18 @@ class StorageServiceTest {
         assertThat(request.getValue().bucket()).isEqualTo("kyc-documents");
         assertThat(request.getValue().key()).isEqualTo(key);
         assertThat(request.getValue().contentType()).isEqualTo("image/png");
+    }
+
+    @Test
+    void deleteRemovesTheObjectFromTheConfiguredBucket() {
+        ReflectionTestUtils.setField(storageService, "bucketName", "kyc-documents");
+
+        storageService.deleteKycDocument("kyc/m1/old.jpg");
+
+        ArgumentCaptor<DeleteObjectRequest> request = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+        verify(s3Client).deleteObject(request.capture());
+        assertThat(request.getValue().bucket()).isEqualTo("kyc-documents");
+        assertThat(request.getValue().key()).isEqualTo("kyc/m1/old.jpg");
     }
 
     // Regression test for 3.1: the old download read the bucket from a static @Value field,

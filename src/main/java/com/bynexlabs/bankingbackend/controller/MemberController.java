@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.controller;
 
+import com.bynexlabs.bankingbackend.DTO.member.KycRejectionRequest;
 import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
@@ -54,7 +55,7 @@ public class MemberController {
     @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
     @PostMapping("/v1/add-member")
     public ResponseEntity<?> addNewMember(@Valid @RequestBody MemberDetails memberDetails) {
-        return memberService.registerNewMember(memberDetails);
+        return memberService.registerNewMember(memberDetails, staffProvider.getStaff());
     }
 
     @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
@@ -66,15 +67,23 @@ public class MemberController {
                                        @RequestParam("documentType") String documentType,
                                        @RequestParam("file") MultipartFile file) {
 
-        return kycService.submitKyc(memberId, documentType, file);
+        return kycService.submitKyc(memberId, documentType, file, staffProvider.getStaff());
     }
 
-    @PreAuthorize("hasAnyAuthority('ADMINISTRATOR', 'AGENT')")
+    // Owner rule (2026-11-07): only an ADMINISTRATOR approves or rejects KYC manually.
+    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @PostMapping("/v1/manual-kyc-approval/{memberId}")
     public ResponseEntity<?> approveKycInfo(@PathVariable UUID memberId) {
 
         Staff staff = staffProvider.getStaff();
 
         return kycService.approveKycInfoManually(memberId, staff);
+    }
+
+    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
+    @PostMapping("/v1/manual-kyc-rejection/{memberId}")
+    public ResponseEntity<?> rejectKycInfo(@PathVariable UUID memberId,
+                                           @Valid @RequestBody KycRejectionRequest request) {
+        return kycService.rejectKycManually(memberId, request.getReason(), staffProvider.getStaff());
     }
 }

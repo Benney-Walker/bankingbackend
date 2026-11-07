@@ -15,8 +15,6 @@ import java.util.UUID;
 public interface MemberKycRecordRepo extends JpaRepository<MemberKycRecord, UUID> {
     Optional<MemberKycRecord> findByMember_Id(UUID memberId);
 
-    boolean existsByMember_Id(UUID memberId);
-
     // Locks the record while an automated result is written, so it can't race a manual approval
     // or a duplicate delivery of the same verification message.
     @Lock(LockModeType.PESSIMISTIC_WRITE)

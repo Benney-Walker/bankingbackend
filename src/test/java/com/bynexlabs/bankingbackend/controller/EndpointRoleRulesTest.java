@@ -96,10 +96,12 @@ class EndpointRoleRulesTest {
                 .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT);
     }
 
+    // Owner rule (2026-11-07): only administrators approve or reject KYC manually.
     @Test
-    void administratorsAndAgentsApproveKycManually() {
-        assertThat(rolesAllowedFor(new MemberController(null, null, null), "approveKycInfo"))
-                .containsExactlyInAnyOrder(Roles.ADMINISTRATOR, Roles.AGENT);
+    void onlyAdministratorsApproveOrRejectKycManually() {
+        MemberController controller = new MemberController(null, null, null);
+        assertThat(rolesAllowedFor(controller, "approveKycInfo")).containsExactly(Roles.ADMINISTRATOR);
+        assertThat(rolesAllowedFor(controller, "rejectKycInfo")).containsExactly(Roles.ADMINISTRATOR);
     }
 
     // Guard for new endpoints: every handler outside /api/auth must state who may call it,

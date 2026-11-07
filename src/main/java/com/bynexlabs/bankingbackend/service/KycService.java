@@ -6,6 +6,7 @@ import com.bynexlabs.bankingbackend.Repository.MemberRepository;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
+import com.bynexlabs.bankingbackend.Utility.ForbiddenException;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
@@ -21,6 +22,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.textract.model.AnalyzeIdRequest;
@@ -71,36 +74,55 @@ public class KycService {
     public record VerificationTask(UUID kycRecordId, String documentKey) {
     }
 
+    /**
+     * First submission, or re-upload after a rejection. Owner rules (D8, 2026-11-07): one KYC record
+     * per member; no re-upload unless a manual review rejected the document, and then only by the
+     * staff member who registered the member. The new document replaces the old one, and the old
+     * file is deleted from R2 once the change has committed.
+     */
     @Transactional
-    public ResponseEntity<?> submitKyc(UUID memberId, String documentType, MultipartFile file) {
+    public ResponseEntity<?> submitKyc(UUID memberId, String documentType, MultipartFile file, Staff uploader) {
+        if (uploader == null) {
+            throw new UnauthorizedException("Staff account not found or inactive");
+        }
         // Check the request before uploading anything, so bad input leaves no orphaned file in R2.
         KycDocumentType type = parseDocumentType(documentType);
         KycUploadRules.ImageType imageType = KycUploadRules.validate(file);
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
-        // Owner rules: one KYC record per member (enforced by V19), and no re-upload unless a
-        // manual review rejected the document. Rejection doesn't exist yet, so every re-upload
-        // is refused for now.
-        if (kycRepository.existsByMember_Id(memberId)) {
-            throw new ConflictException("A KYC document has already been submitted for this member");
+
+        MemberKycRecord existing = kycRepository.findByMember_Id(memberId).orElse(null);
+        if (existing != null) {
+            requireAllowedReupload(existing, member, uploader);
         }
 
-        String documentKey;
-        try {
-            documentKey = storageService.uploadKycDocument(file, memberId, imageType);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Could not read the uploaded KYC document", e);
-        }
+        String documentKey = upload(file, memberId, imageType);
 
-        MemberKycRecord kycRecord = new MemberKycRecord();
-        kycRecord.setMember(member);
+        MemberKycRecord kycRecord;
+        String replacedKey = null;
+        if (existing == null) {
+            kycRecord = new MemberKycRecord();
+            kycRecord.setMember(member);
+            kycRecord.setCreatedAt(LocalDateTime.now());
+        } else {
+            // Lock and re-check: another re-upload or review may have happened since the check above.
+            kycRecord = kycRepository.lockById(existing.getId()).orElseThrow();
+            if (kycRecord.getStatus() != KycStatus.REJECTED) {
+                storageService.deleteKycDocument(documentKey);
+                throw new ConflictException("This member's KYC document is no longer awaiting a re-upload");
+            }
+            replacedKey = kycRecord.getDocumentUrl();
+            kycRecord.setRejectionReason(null);
+            kycRecord.setVerificationMethod(null);
+            kycRecord.setStaff(null);
+        }
         kycRecord.setDocumentType(type);
         kycRecord.setStatus(KycStatus.PENDING);
-        kycRecord.setCreatedAt(LocalDateTime.now());
         kycRecord.setDocumentUrl(documentKey);
+
         MemberKycRecord savedRecord;
         try {
-            // Flush now so a simultaneous second upload hits the unique constraint here, as a 409.
+            // Flush now so a simultaneous first upload hits the unique constraint here, as a 409.
             savedRecord = kycRepository.saveAndFlush(kycRecord);
         } catch (DataIntegrityViolationException e) {
             throw new ConflictException("A KYC document has already been submitted for this member");
@@ -113,12 +135,53 @@ public class KycService {
                 .build();
         outboxService.enqueue(RabbitMQConfig.EXCHANGE_NAME, RabbitMQConfig.KYC_VERIFICATION_ROUTING_KEY, kycEvent);
 
+        if (replacedKey != null) {
+            deleteAfterCommit(replacedKey);
+        }
+
         return ResponseEntity.ok(Map.of(
                 "status", "success",
                 "message", "reviewing Kyc information"
         ));
     }
 
+    private void requireAllowedReupload(MemberKycRecord existing, Member member, Staff uploader) {
+        if (existing.getStatus() != KycStatus.REJECTED) {
+            throw new ConflictException("A KYC document has already been submitted for this member");
+        }
+        Staff registeredBy = member.getRegisteredBy();
+        if (registeredBy == null || !registeredBy.getId().equals(uploader.getId())) {
+            // Members registered before V20 have no registering staff recorded, so nobody passes
+            // this check for them yet; the owner is deciding who may re-upload in that case.
+            throw new ForbiddenException(
+                    "Only the staff member who registered this member can re-upload their KYC document");
+        }
+    }
+
+    private String upload(MultipartFile file, UUID memberId, KycUploadRules.ImageType imageType) {
+        try {
+            return storageService.uploadKycDocument(file, memberId, imageType);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not read the uploaded KYC document", e);
+        }
+    }
+
+    // R2 isn't part of the database transaction, so the replaced file is removed only after the
+    // new record has committed. If deletion fails, the cost is an unused private file, logged.
+    private void deleteAfterCommit(String objectKey) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    storageService.deleteKycDocument(objectKey);
+                } catch (RuntimeException e) {
+                    log.warn("Could not delete replaced KYC document {}", objectKey, e);
+                }
+            }
+        });
+    }
+
+    /** Owner rule (2026-11-07): only an ADMINISTRATOR approves or rejects KYC manually. */
     @Transactional
     public ResponseEntity<?> approveKycInfoManually(UUID memberId, Staff staff) {
         if (staff == null) {
@@ -128,14 +191,50 @@ public class KycService {
         }
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Could not find membership record to update"));
-        MemberKycRecord kycRecord = kycRepository.findByMember_Id(memberId)
-                .orElseThrow(() -> new ConflictException("This member has not submitted a KYC document yet"));
+        MemberKycRecord kycRecord = reviewableRecord(memberId);
 
         memberAccountService.activateMemberAccounts(member, kycRecord, VerificationMethod.MANUAL, staff);
 
         return ResponseEntity.ok(Map.of(
                 "status", "success"
         ));
+    }
+
+    /**
+     * Rejects the document; the member stays PENDING and their accounts inactive. The staff member
+     * who registered the member can then upload a clearer document.
+     */
+    @Transactional
+    public ResponseEntity<?> rejectKycManually(UUID memberId, String reason, Staff staff) {
+        if (staff == null) {
+            throw new UnauthorizedException("Staff account not found or inactive");
+        }
+        memberRepository.findById(memberId)
+                .orElseThrow(() -> new ResourceNotFoundException("Could not find membership record to update"));
+        MemberKycRecord kycRecord = reviewableRecord(memberId);
+
+        kycRecord.setStatus(KycStatus.REJECTED);
+        kycRecord.setRejectionReason(reason);
+        kycRecord.setVerificationMethod(VerificationMethod.MANUAL);
+        // verified_by holds the reviewing administrator for either outcome.
+        kycRecord.setStaff(staff);
+        kycRepository.save(kycRecord);
+
+        return ResponseEntity.ok(Map.of(
+                "status", "success"
+        ));
+    }
+
+    // Only a document still under review can be approved or rejected. The record is locked so a
+    // review can't overlap with the automated check writing its result.
+    private MemberKycRecord reviewableRecord(UUID memberId) {
+        MemberKycRecord found = kycRepository.findByMember_Id(memberId)
+                .orElseThrow(() -> new ConflictException("This member has not submitted a KYC document yet"));
+        MemberKycRecord record = kycRepository.lockById(found.getId()).orElseThrow();
+        if (record.getStatus() != KycStatus.PENDING && record.getStatus() != KycStatus.MANUAL_REVIEW) {
+            throw new ConflictException("This member's KYC is " + record.getStatus() + " and can't be reviewed");
+        }
+        return record;
     }
 
     // ----- Automated verification steps (see class comment) -----

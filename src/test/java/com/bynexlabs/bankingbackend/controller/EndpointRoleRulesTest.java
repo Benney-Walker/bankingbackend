@@ -54,16 +54,19 @@ class EndpointRoleRulesTest {
 
     @Test
     void onlyAdministratorsCreateStaff() {
-        assertThat(rolesAllowedFor(new StaffController(null), "addNewStaff"))
+        assertThat(rolesAllowedFor(new StaffController(null, null), "addNewStaff"))
                 .containsExactly(Roles.ADMINISTRATOR);
     }
 
     @Test
-    void onlyAdministratorsListViewAndUpdateStaff() {
-        StaffController controller = new StaffController(null);
+    void onlyAdministratorsManageStaff() {
+        StaffController controller = new StaffController(null, null);
         assertThat(rolesAllowedFor(controller, "listStaff")).containsExactly(Roles.ADMINISTRATOR);
         assertThat(rolesAllowedFor(controller, "getStaff")).containsExactly(Roles.ADMINISTRATOR);
         assertThat(rolesAllowedFor(controller, "updateStaff")).containsExactly(Roles.ADMINISTRATOR);
+        assertThat(rolesAllowedFor(controller, "updateRoles")).containsExactly(Roles.ADMINISTRATOR);
+        assertThat(rolesAllowedFor(controller, "deactivateStaff")).containsExactly(Roles.ADMINISTRATOR);
+        assertThat(rolesAllowedFor(controller, "reactivateStaff")).containsExactly(Roles.ADMINISTRATOR);
     }
 
     @Test

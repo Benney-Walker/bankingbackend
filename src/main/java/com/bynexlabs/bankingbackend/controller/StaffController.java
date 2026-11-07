@@ -3,7 +3,9 @@ package com.bynexlabs.bankingbackend.controller;
 import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffResponse;
+import com.bynexlabs.bankingbackend.DTO.staff.StaffRolesRequest;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffUpdateRequest;
+import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
 import com.bynexlabs.bankingbackend.service.MemberService;
 import com.bynexlabs.bankingbackend.service.StaffService;
 import jakarta.validation.Valid;
@@ -27,6 +29,8 @@ public class StaffController {
 
     private final StaffService staffService;
 
+    private final AuthenticatedStaffProvider staffProvider;
+
     @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @GetMapping("/v1/all-staff")
     public PagedModel<StaffResponse> listStaff(@RequestParam(defaultValue = "0") int page,
@@ -45,6 +49,25 @@ public class StaffController {
     public StaffResponse updateStaff(@PathVariable String staffId,
                                      @Valid @RequestBody StaffUpdateRequest request) {
         return staffService.updateStaffProfile(staffId, request);
+    }
+
+    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
+    @PutMapping("/v1/update-roles/{staffId}")
+    public StaffResponse updateRoles(@PathVariable String staffId,
+                                     @Valid @RequestBody StaffRolesRequest request) {
+        return staffService.updateStaffRoles(staffId, request, staffProvider.getStaffId());
+    }
+
+    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
+    @PostMapping("/v1/deactivate/{staffId}")
+    public StaffResponse deactivateStaff(@PathVariable String staffId) {
+        return staffService.deactivateStaff(staffId, staffProvider.getStaffId());
+    }
+
+    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
+    @PostMapping("/v1/reactivate/{staffId}")
+    public StaffResponse reactivateStaff(@PathVariable String staffId) {
+        return staffService.reactivateStaff(staffId);
     }
 
     @PreAuthorize("hasAuthority('ADMINISTRATOR')")

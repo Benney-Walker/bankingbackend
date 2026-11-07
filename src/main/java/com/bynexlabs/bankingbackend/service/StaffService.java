@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffResponse;
+import com.bynexlabs.bankingbackend.DTO.staff.StaffRolesRequest;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffUpdateRequest;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
@@ -30,7 +31,9 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -95,6 +98,90 @@ public class StaffService {
         staff.setUpdatedAt(LocalDateTime.now());
 
         return StaffResponse.from(staffRepo.save(staff));
+    }
+
+    /**
+     * Replaces the staff member's roles with the requested set. Only the difference is written,
+     * so unchanged roles keep their rows. The change reaches the staff member's API access the
+     * next time they log in or refresh their access token, because roles travel in the token.
+     */
+    @Transactional
+    public StaffResponse updateStaffRoles(String staffId, StaffRolesRequest request, String actingStaffId) {
+        Staff staff = findStaffOrThrow(staffId);
+        Set<Roles> requested = EnumSet.noneOf(Roles.class);
+        requested.addAll(parseRoles(request.getRoles()));
+
+        List<StaffRoles> currentRoles = staff.getRoles() == null ? new ArrayList<>() : staff.getRoles();
+        boolean losesAdministrator = currentRoles.stream().anyMatch(r -> r.getRole() == Roles.ADMINISTRATOR)
+                && !requested.contains(Roles.ADMINISTRATOR);
+        if (losesAdministrator) {
+            if (staffId.equals(actingStaffId)) {
+                throw new ConflictException("You cannot remove your own ADMINISTRATOR role");
+            }
+            if (staff.getStaffStatus() == StaffStatus.ACTIVE) {
+                requireAnotherActiveAdministrator(staffId);
+            }
+        }
+
+        List<StaffRoles> removed = currentRoles.stream()
+                .filter(r -> !requested.contains(r.getRole()))
+                .toList();
+        Set<Roles> kept = EnumSet.noneOf(Roles.class);
+        currentRoles.stream().map(StaffRoles::getRole).filter(requested::contains).forEach(kept::add);
+        List<Roles> added = requested.stream().filter(role -> !kept.contains(role)).toList();
+
+        staffRolesRepo.deleteAll(removed);
+        currentRoles.removeAll(removed);
+        List<StaffRoles> addedRows = buildStaffRoles(staff, added);
+        staffRolesRepo.saveAll(addedRows);
+        currentRoles.addAll(addedRows);
+        staff.setRoles(currentRoles);
+
+        staff.setUpdatedAt(LocalDateTime.now());
+        staffRepo.save(staff);
+        return StaffResponse.from(staff);
+    }
+
+    /** Takes effect immediately: JwtAuthenticationFilter rejects inactive staff on every request. */
+    @Transactional
+    public StaffResponse deactivateStaff(String staffId, String actingStaffId) {
+        Staff staff = findStaffOrThrow(staffId);
+        if (staffId.equals(actingStaffId)) {
+            throw new ConflictException("You cannot deactivate your own account");
+        }
+        if (staff.getStaffStatus() == StaffStatus.INACTIVE) {
+            return StaffResponse.from(staff);
+        }
+        boolean isAdministrator = staff.getRoles() != null
+                && staff.getRoles().stream().anyMatch(r -> r.getRole() == Roles.ADMINISTRATOR);
+        if (isAdministrator) {
+            requireAnotherActiveAdministrator(staffId);
+        }
+
+        staff.setStaffStatus(StaffStatus.INACTIVE);
+        staff.setUpdatedAt(LocalDateTime.now());
+        staffRepo.save(staff);
+        return StaffResponse.from(staff);
+    }
+
+    @Transactional
+    public StaffResponse reactivateStaff(String staffId) {
+        Staff staff = findStaffOrThrow(staffId);
+        if (staff.getStaffStatus() != StaffStatus.ACTIVE) {
+            staff.setStaffStatus(StaffStatus.ACTIVE);
+            staff.setUpdatedAt(LocalDateTime.now());
+            staffRepo.save(staff);
+        }
+        return StaffResponse.from(staff);
+    }
+
+    // Owner decision: the credit union must never be left without an active administrator,
+    // otherwise nobody could manage staff any more.
+    private void requireAnotherActiveAdministrator(String staffId) {
+        long others = staffRolesRepo.countOtherStaffWithRoleAndStatus(Roles.ADMINISTRATOR, StaffStatus.ACTIVE, staffId);
+        if (others == 0) {
+            throw new ConflictException("At least one active ADMINISTRATOR is required");
+        }
     }
 
     private Staff findStaffOrThrow(String staffId) {
@@ -178,6 +265,10 @@ public class StaffService {
     }
 
     private void saveStaffRoles(Staff staff, List<Roles> roles) {
+        staffRolesRepo.saveAll(buildStaffRoles(staff, roles));
+    }
+
+    private List<StaffRoles> buildStaffRoles(Staff staff, List<Roles> roles) {
         List<StaffRoles> staffRoles = new ArrayList<>();
         for (Roles role : roles) {
             StaffRoles newRole = new StaffRoles();
@@ -185,6 +276,6 @@ public class StaffService {
             newRole.setRole(role);
             staffRoles.add(newRole);
         }
-        staffRolesRepo.saveAll(staffRoles);
+        return staffRoles;
     }
 }

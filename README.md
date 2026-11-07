@@ -65,6 +65,9 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | GET | `/api/staff/v1/all-staff?page=0&size=20` | ADMINISTRATOR | Staff list sorted by staff ID; `size` 1–100. Returns `{ "content": [staff…], "page": { "size", "number", "totalElements", "totalPages" } }` |
 | GET | `/api/staff/v1/staff-details/{staffId}` | ADMINISTRATOR | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | ADMINISTRATOR | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress`. Same validation and duplicate checks as add-staff, ignoring the staff member being edited. Returns the updated staff |
+| PUT | `/api/staff/v1/update-roles/{staffId}` | ADMINISTRATOR | Body `{ "roles": ["AGENT", …] }` is the complete new role set. Takes effect for that staff member at their next login or token refresh. Returns the updated staff |
+| POST | `/api/staff/v1/deactivate/{staffId}` | ADMINISTRATOR | Set status `INACTIVE`; blocks the staff member's API access immediately. Already inactive → no change |
+| POST | `/api/staff/v1/reactivate/{staffId}` | ADMINISTRATOR | Set status `ACTIVE`. Already active → no change |
 | POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus a `SAVINGS` or `CURRENT` account, both inactive with zero balance |
 | POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
 | POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified and activate the member and their accounts |
@@ -92,7 +95,7 @@ Every error uses the same JSON body:
 | 403 | Authenticated, but the staff member's role isn't allowed to call the endpoint |
 | 404 | Unknown path, or a record that doesn't exist (e.g. an unknown staff ID, or manual KYC approval for an unknown member) |
 | 405 | HTTP method not supported by the endpoint |
-| 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone |
+| 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone; an administrator deactivating themselves or removing their own `ADMINISTRATOR` role; any change that would leave no active administrator |
 | 500 | Anything unexpected; the body never contains internal details, which are logged instead |
 
 Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
@@ -132,3 +135,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **1.1 Endpoint role checks:** method security enabled; add-staff is ADMINISTRATOR only; member registration, KYC upload and manual KYC approval are ADMINISTRATOR or AGENT; `@PreAuthorize` denials return 403 instead of 500.
 - **1.3 Refresh-token method:** `/api/auth/v1/refresh-token` is now `POST` (decision D4); `GET` returns 405. Clients must update their call.
 - **1.5a Staff list, details and profile update:** ADMINISTRATOR-only endpoints to page through staff, view one, and update profile details; an invalid staff date of birth now returns 400 instead of 500.
+- **1.5b Staff roles and status:** ADMINISTRATOR-only role replacement, deactivation and reactivation, with the owner's lockout rule (no self-deactivation, no self-demotion, always at least one active administrator).

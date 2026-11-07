@@ -11,21 +11,8 @@ public class RabbitMQProducer {
 
     private final RabbitTemplate rabbitTemplate;
 
-    public void sendDefaultShareAccountEvent(Object payload) {
-        rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE_NAME,
-                RabbitMQConfig.DEFAULT_SHARE_ACCOUNT_ROUTING_KEY,
-                payload
-        );
-    }
-
-    public void sendOtherAccountCreationEvent(Object payload) {
-        rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE_NAME,
-                RabbitMQConfig.OTHER_ACCOUNT_CREATION_ROUTING_KEY,
-                payload
-        );
-    }
+    // Account-creation events go through OutboxService (decision D6) so they can't be lost;
+    // don't add direct sends for events that must survive a RabbitMQ outage.
 
     public void sendKycVerificationEvent(Object payload) {
         rabbitTemplate.convertAndSend(

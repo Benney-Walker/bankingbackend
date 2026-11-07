@@ -6,7 +6,7 @@ Spring Boot API for a single credit union. It serves the staff desktop applicati
 
 - Java 17, Spring Boot 4.1.2 (Web MVC, Security, Data JPA, AMQP, Validation)
 - PostgreSQL with Flyway migrations (`spring.jpa.hibernate.ddl-auto=validate`)
-- RabbitMQ for internal asynchronous work (account creation, KYC verification)
+- RabbitMQ for internal asynchronous work (account creation, KYC verification). Account-creation messages go through a transactional outbox (`outbox_events`), so they're never lost if RabbitMQ is down
 - Cloudflare R2 (S3-compatible, private bucket `kyc-documents`) for KYC documents
 - AWS Textract for KYC OCR (provider not final)
 - Vynfy for SMS (used for staff password-reset codes). Vynfy only accepts international numbers, so stored local numbers (`0241234567`) are sent as `+233241234567`
@@ -32,6 +32,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | Cloudflare R2 | `CLOUD_FLARE_ID`, `CLOUD_FLARE_ACCESS_KEY`, `CLOUD_FLARE_SECRET_KEY` |
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
+| Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
 | CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
 
 `PUBLIC_URL` is still referenced in the properties file but nothing reads it; KYC documents are stored privately and referenced by object key.
@@ -70,7 +71,7 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | PUT | `/api/staff/v1/update-roles/{staffId}` | ADMINISTRATOR | Body `{ "roles": ["AGENT", …] }` is the complete new role set. Takes effect on the staff member's next request. Returns the updated staff |
 | POST | `/api/staff/v1/deactivate/{staffId}` | ADMINISTRATOR | Set status `INACTIVE`; blocks the staff member's API access immediately. Already inactive → no change |
 | POST | `/api/staff/v1/reactivate/{staffId}` | ADMINISTRATOR | Set status `ACTIVE`. Already active → no change |
-| POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus a `SAVINGS` or `CURRENT` account, both inactive with zero balance |
+| POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance. `accountType` other than `SAVINGS`/`CURRENT` (including `SHARES`) or a `dob` not in yyyy-MM-dd → 400. Accounts are created asynchronously, normally within a moment |
 | POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
 | POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified and activate the member and their accounts |
 
@@ -112,6 +113,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V14 | `member_kyc_records.verified_at` is nullable, so pending KYC records can be saved. The V4 check constraint still requires it once status is `VERIFIED` |
 | V15 | `id_entity.id` becomes an identity column, starting after any existing rows, so `IdGenerator` can create its first counters |
 | V16 | `password_reset_codes`: at most one pending reset code per staff member (hash, expiry, failed attempts); deleted with the staff record |
+| V17 | `outbox_events`: RabbitMQ messages saved with the change they announce, sent after commit and retried until sent |
 
 ## Status
 
@@ -142,3 +144,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Immediate role changes (D32):** `JwtAuthenticationFilter` takes roles from the database (with status, in one query) instead of the token.
 - **1.5c Staff password reset:** public request/confirm endpoints from a reset page; 6-digit SMS code, stored only as a BCrypt hash (migration V16, `password_reset_codes`), valid 10 minutes, 3 attempts, active staff only; administrators can't reset other people's passwords. Email delivery waits for an email provider.
 - **1.5c follow-ups:** SMS recipients converted to `+233…` for Vynfy; one reset code per staff ID per minute; add-staff passwords must be 8–72 characters; reset SMS wording approved.
+- **2.1 Reliable member registration:** member and both account-creation messages are saved in one transaction through a transactional outbox (V17); messages are sent right after commit, and a scheduled job retries unsent ones every `OUTBOX_RETRY_INTERVAL_MS`. Account type (SAVINGS/CURRENT only) and date of birth are validated up front (400). Delivery is at-least-once; consumers become duplicate-safe in 2.2.

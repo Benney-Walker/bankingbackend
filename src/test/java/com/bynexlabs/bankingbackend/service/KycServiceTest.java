@@ -202,6 +202,14 @@ class KycServiceTest {
     }
 
     @Test
+    void malformedGhanaCardNumberIsRejectedBeforeUploading() {
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "ECOWAS_CARD", "GHA-1234-5", file, registrar))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Ghana Card number must look like GHA-123456789-0");
+        verifyNoInteractions(memberRepository, storageService, kycRepository);
+    }
+
+    @Test
     void idNumberOfAnotherMemberIsAConflict() {
         when(memberRepository.findById(memberId)).thenReturn(Optional.of(member(registrar)));
         when(kycRepository.existsByIdNumberAndMember_IdNot(ID_NUMBER, memberId)).thenReturn(true);

@@ -10,6 +10,7 @@ import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.ForbiddenException;
+import com.bynexlabs.bankingbackend.Utility.IdNumberRules;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
@@ -83,6 +84,7 @@ public class KycService {
         // Check the request before uploading anything, so bad input leaves no orphaned file in R2.
         KycDocumentType type = parseDocumentType(documentType);
         String normalizedIdNumber = normalizeIdNumber(idNumber);
+        IdNumberRules.requireValidFormat(type, normalizedIdNumber);
         KycUploadRules.ImageType imageType = KycUploadRules.validate(file);
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
@@ -318,8 +320,7 @@ public class KycService {
     }
 
     // Stored trimmed and upper-cased so the uniqueness check and the comparison with OCR don't
-    // depend on how staff typed it. Per-card-type format rules come once the owner confirms
-    // the formats (roadmap 3.5 follow-up).
+    // depend on how staff typed it. Per-card-type formats are checked by IdNumberRules.
     static String normalizeIdNumber(String idNumber) {
         if (idNumber == null || idNumber.isBlank()) {
             throw new BadRequestException("ID number is required");

@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.controller;
 
 import com.bynexlabs.bankingbackend.Utility.GlobalExceptionHandler;
 import com.bynexlabs.bankingbackend.service.AuthService;
+import com.bynexlabs.bankingbackend.service.PasswordResetService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,13 +17,14 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Pins the refresh-token HTTP contract the desktop and mobile apps call (decision D4: POST). */
+/** Pins the public auth HTTP contracts the desktop and mobile apps call: refresh (D4: POST) and password reset. */
 @ExtendWith(MockitoExtension.class)
 class AuthControllerTest {
 
@@ -31,11 +33,14 @@ class AuthControllerTest {
     @Mock
     private AuthService authService;
 
+    @Mock
+    private PasswordResetService passwordResetService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new AuthController(authService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new AuthController(authService, passwordResetService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -59,6 +64,47 @@ class AuthControllerTest {
                         .content("{\"refreshToken\":\"refresh-token\"}"))
                 .andExpect(status().isMethodNotAllowed());
         verifyNoInteractions(authService);
+    }
+
+    @Test
+    void resetRequestAlwaysGivesTheSameAnswer() throws Exception {
+        mockMvc.perform(post("/api/auth/v1/password-reset/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"staffId\":\"900999\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value(
+                        "If the staff ID belongs to an active staff member, a reset code has been sent by SMS."));
+        verify(passwordResetService).requestReset("900999");
+    }
+
+    @Test
+    void resetConfirmRejectsShortPasswordBeforeCheckingTheCode() throws Exception {
+        mockMvc.perform(post("/api/auth/v1/password-reset/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"staffId\":\"900100\",\"code\":\"123456\",\"newPassword\":\"short7!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.newPassword").exists());
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    void resetConfirmRejectsCodeThatIsNotSixDigits() throws Exception {
+        mockMvc.perform(post("/api/auth/v1/password-reset/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"staffId\":\"900100\",\"code\":\"12ab\",\"newPassword\":\"long-enough-1\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.code").value("Reset code must be 6 digits"));
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    void resetConfirmPassesValidRequestToTheService() throws Exception {
+        mockMvc.perform(post("/api/auth/v1/password-reset/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"staffId\":\"900100\",\"code\":\"123456\",\"newPassword\":\"long-enough-1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Password has been reset"));
+        verify(passwordResetService).confirmReset("900100", "123456", "long-enough-1");
     }
 
     @Test

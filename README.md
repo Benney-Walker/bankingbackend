@@ -9,7 +9,7 @@ Spring Boot API for a single credit union. It serves the staff desktop applicati
 - RabbitMQ for internal asynchronous work (account creation, KYC verification)
 - Cloudflare R2 (S3-compatible, private bucket `kyc-documents`) for KYC documents
 - AWS Textract for KYC OCR (provider not final)
-- Vynfy for SMS (integrated, not yet triggered by any workflow)
+- Vynfy for SMS (used for staff password-reset codes)
 - JWT (JJWT) for staff authentication
 
 ## Prerequisites
@@ -61,6 +61,8 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 |---|---|---|---|
 | POST | `/api/auth/v1/login` | Public | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
 | POST | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body; returns `{ "authToken": ... }` |
+| POST | `/api/auth/v1/password-reset/request` | Public | Body `{ "staffId" }`. If it's an ACTIVE staff member, a 6-digit code is texted to their phone (Vynfy). Always returns the same 200 message, whether or not the staff ID exists |
+| POST | `/api/auth/v1/password-reset/confirm` | Public | Body `{ "staffId", "code", "newPassword" }`. Code valid 10 minutes, 3 wrong attempts allowed, then a new code is needed. Password 8–72 characters. Wrong/expired code → 400 `Invalid or expired reset code` |
 | POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR` |
 | GET | `/api/staff/v1/all-staff?page=0&size=20` | ADMINISTRATOR | Staff list sorted by staff ID; `size` 1–100. Returns `{ "content": [staff…], "page": { "size", "number", "totalElements", "totalPages" } }` |
 | GET | `/api/staff/v1/staff-details/{staffId}` | ADMINISTRATOR | One staff member (404 if unknown) |
@@ -109,6 +111,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V1–V13 | Initial schema: ID counters, GL accounts, staff and roles, members, KYC records, member accounts, transactions, journal entries, loan tables |
 | V14 | `member_kyc_records.verified_at` is nullable, so pending KYC records can be saved. The V4 check constraint still requires it once status is `VERIFIED` |
 | V15 | `id_entity.id` becomes an identity column, starting after any existing rows, so `IdGenerator` can create its first counters |
+| V16 | `password_reset_codes`: at most one pending reset code per staff member (hash, expiry, failed attempts); deleted with the staff record |
 
 ## Status
 
@@ -137,3 +140,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **1.5a Staff list, details and profile update:** ADMINISTRATOR-only endpoints to page through staff, view one, and update profile details; an invalid staff date of birth now returns 400 instead of 500.
 - **1.5b Staff roles and status:** ADMINISTRATOR-only role replacement, deactivation and reactivation, with the owner's lockout rule (no self-deactivation, no self-demotion, always at least one active administrator).
 - **Immediate role changes (D32):** `JwtAuthenticationFilter` takes roles from the database (with status, in one query) instead of the token.
+- **1.5c Staff password reset:** public request/confirm endpoints from a reset page; 6-digit SMS code, stored only as a BCrypt hash (migration V16, `password_reset_codes`), valid 10 minutes, 3 attempts, active staff only; administrators can't reset other people's passwords. Email delivery waits for an email provider.

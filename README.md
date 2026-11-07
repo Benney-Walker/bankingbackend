@@ -6,7 +6,7 @@ Spring Boot API for a single credit union. It serves the staff desktop applicati
 
 - Java 17, Spring Boot 4.1.2 (Web MVC, Security, Data JPA, AMQP, Validation)
 - PostgreSQL with Flyway migrations (`spring.jpa.hibernate.ddl-auto=validate`)
-- RabbitMQ for internal asynchronous work (account creation, KYC verification). Account-creation messages go through a transactional outbox (`outbox_events`), so they're never lost if RabbitMQ is down
+- RabbitMQ for internal asynchronous work (account creation, KYC verification). All messages (account creation and KYC verification) go through a transactional outbox (`outbox_events`), so they're never lost if RabbitMQ is down
 - Cloudflare R2 (S3-compatible, private bucket `kyc-documents`) for KYC documents
 - AWS Textract for KYC OCR (provider not final)
 - Vynfy for SMS (used for staff password-reset codes). Vynfy only accepts international numbers, so stored local numbers (`0241234567`) are sent as `+233241234567`
@@ -75,8 +75,8 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | GET | `/api/member/v1/member-details/{memberId}` | ADMINISTRATOR, AGENT, COLLECTOR | Member details plus `accounts` (`accountNumber`, `accountType`, `status`; no balances). 404 if unknown |
 | PUT | `/api/member/v1/update-member/{memberId}` | ADMINISTRATOR, AGENT | Body `{ "phoneNumber", "residentialAddress", "occupation" }`, the only member fields that can change after registration; everything else is locked. Phone must be unique among members (409) |
 | POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance. `accountType` other than `SAVINGS`/`CURRENT` (including `SHARES`), a `dob` not in yyyy-MM-dd, or a `phoneNumber` that isn't 10 digits starting with 0 → 400. Accounts are created asynchronously, normally within a moment |
-| POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
-| POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified and activate the member and their accounts |
+| POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`, case-insensitive), `file`. Stores the document in the private R2 bucket, creates a `PENDING` KYC record and queues automated verification. Unknown document type → 400 and unknown member → 404, both before anything is uploaded |
+| POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified (method `MANUAL`, approving staff recorded) and activate the member and their accounts. 404 unknown member; 409 if the member hasn't submitted a KYC document |
 
 Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
 
@@ -110,7 +110,9 @@ Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundExce
 
 - Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue` and `kyc_verification_queue`.
 - **Retries and dead letters:** a message whose listener throws gets 3 retries (1 s, 2 s, 4 s). After that it's rejected and moved to its dead-letter queue (`default_share_account_dead_letter_queue`, `other_account_creation_dead_letter_queue` or `kyc_verification_dead_letter_queue`) through the exchange `cash_client_ecosystem_dead_letter`, keeping its original routing key. Failed messages never loop forever. Inspect dead-letter queues in the RabbitMQ management UI.
-- **Duplicates:** account-creation messages come from the outbox and carry its ID as the AMQP message ID. The consumers record that ID in `processed_messages` in the same transaction as the account, and skip a message they've already handled.
+- **Duplicates:** messages come from the outbox and carry its ID as the AMQP message ID. The account-creation consumers record that ID in `processed_messages` in the same transaction as the account, and skip a message they've already handled. The KYC consumer only acts on `PENDING` records, so a repeat is a no-op.
+
+- **Automated KYC flow:** upload → `PENDING` record and an outbox message → the consumer reads the record (short transaction) → downloads the document from R2 and runs OCR (no transaction open) → writes the result with the record locked (short transaction). Storage or OCR failures send the record to `MANUAL_REVIEW`; a result for a record that was approved manually in the meantime is ignored.
 
 > **One-time step when upgrading from a version before 2.2:** the three work queues now carry a dead-letter argument, and RabbitMQ refuses to redeclare an existing queue with different arguments. Once they're empty, delete `default_share_account_queue`, `other_account_creation_queue` and `kyc_verification_queue` in the RabbitMQ management UI (or `rabbitmqctl delete_queue <name>`) before starting the new version, which recreates them. Messages waiting in the outbox aren't affected.
 
@@ -137,7 +139,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Staff creation | Implemented; persistence fixed in 0.1 (staff IDs are now generated) |
 | Member registration and async account creation | Implemented; member timestamps fixed in 0.1 |
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
-| Automated KYC verification | Present but not working end to end (bucket name not injected, runs outside a transaction); fixed in roadmap 3.1. Compares names only |
+| Automated KYC verification | Works end to end (3.1): R2 download and Textract OCR run outside database transactions; matching names (≥ 85% confidence) activate automatically, anything else goes to `MANUAL_REVIEW`. Compares first and last name only; date of birth and ID number come in 3.6 |
 | Manual KYC approval | Implemented (ADMINISTRATOR, AGENT) |
 | Endpoint role permissions | Implemented for all current endpoints (1.1) |
 | Transactions, ledger postings, shares, SMS on collection | Not implemented (Phases 4–5) |
@@ -159,3 +161,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **2.1 Reliable member registration:** member and both account-creation messages are saved in one transaction through a transactional outbox (V17); messages are sent right after commit, and a scheduled job retries unsent ones every `OUTBOX_RETRY_INTERVAL_MS`. Account type (SAVINGS/CURRENT only) and date of birth are validated up front (400). Delivery is at-least-once, which 2.2 makes safe.
 - **2.2 Duplicate-safe consumers and dead letters:** account-creation consumers skip redelivered messages (V18 `processed_messages`, keyed by message ID and consumer); listeners retry 3 times, then failed messages go to per-queue dead-letter queues. Requires the one-time queue deletion described under RabbitMQ messaging.
 - **2.3 Member search, details and contact update:** all roles can search and view members (no balances); ADMINISTRATOR and AGENT can change only phone, address and occupation. Member and staff phone numbers must be exactly 10 digits starting with 0 (`PhoneNumberRules`).
+- **3.1 Automated KYC fixed:** the bucket name is now read correctly (download moved into `StorageService`); verification runs as read → external calls → write, without holding a transaction during R2/OCR; the KYC message goes through the outbox; upload validates document type and member before uploading; manual approval returns 409 when there's no KYC submission instead of a 500; `RabbitMQProducer` removed (everything uses the outbox). Account numbers keep their current format (decision D7).

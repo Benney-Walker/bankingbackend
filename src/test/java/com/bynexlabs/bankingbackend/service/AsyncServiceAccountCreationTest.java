@@ -3,7 +3,6 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
-import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import com.bynexlabs.bankingbackend.enums.AccountStatus;
@@ -40,7 +39,7 @@ class AsyncServiceAccountCreationTest {
     private MemberAccountRepo memberAccountRepo;
 
     @Mock
-    private MemberKycRecordRepo kycRecordRepo;
+    private StorageService storageService;
 
     @Mock
     private KycService kycService;

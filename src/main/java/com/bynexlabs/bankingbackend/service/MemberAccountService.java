@@ -14,6 +14,8 @@ import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,11 +31,15 @@ public class MemberAccountService {
 
     private final MemberKycRecordRepo kycRecordRepo;
 
-    public void activateMemberAccounts(Member member, VerificationMethod method, Staff staff) {
+    /**
+     * Marks the KYC record verified and activates the member and their accounts. Runs inside the
+     * caller's transaction so all of it commits together. staff is null for automated approval.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void activateMemberAccounts(Member member, MemberKycRecord kycRecord, VerificationMethod method, Staff staff) {
         member.setMembershipStatus(MembershipStatus.ACTIVE);
         memberRepository.save(member);
 
-        MemberKycRecord kycRecord = kycRecordRepo.findByMember_Id(member.getId()).orElse(null);
         kycRecord.setStatus(KycStatus.VERIFIED);
         kycRecord.setVerifiedAt(LocalDateTime.now());
         kycRecord.setVerificationMethod(method);

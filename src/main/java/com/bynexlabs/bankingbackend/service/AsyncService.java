@@ -4,15 +4,12 @@ import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
-import com.bynexlabs.bankingbackend.Repository.MemberKycRecordRepo;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
 import com.bynexlabs.bankingbackend.enums.AccountStatus;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
-import com.bynexlabs.bankingbackend.enums.KycStatus;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
-import com.bynexlabs.bankingbackend.models.MemberKycRecord;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +20,7 @@ import software.amazon.awssdk.services.textract.model.IdentityDocumentField;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -36,7 +34,7 @@ public class AsyncService {
 
     private final MemberAccountRepo memberAccountRepo;
 
-    private final MemberKycRecordRepo kycRecordRepo;
+    private final StorageService storageService;
 
     private final KycService kycService;
 
@@ -90,27 +88,32 @@ public class AsyncService {
         memberAccountRepo.save(account);
     }
 
+    /**
+     * Automated KYC check. Deliberately not transactional: the R2 download and the OCR call
+     * happen between two short transactions in KycService, never inside one.
+     */
     public void processKycVerification(KycVerificationEvent kycEvent) {
-
-        MemberKycRecord record = kycRecordRepo.findById(kycEvent.getKycRecordId())
-                .orElseThrow(() -> new IllegalArgumentException("KYC Record not found"));
-
-        Member member = record.getMember();
-
-        try {
-
-            String objectKey = kycService.extractKeyFromUrl(record.getDocumentUrl());
-            byte[] documentBytes = kycService.downloadDocumentFromR2(objectKey);
-
-            Map<String, IdentityDocumentField> extractedData = kycService.extractIdInformation(documentBytes);
-
-            kycService.verifyAndRoute(record, member, extractedData);
-
-        } catch (Exception e) {
-            log.warn("Automated KYC failed for record {}; sending it to manual review", record.getId(), e);
-            record.setStatus(KycStatus.MANUAL_REVIEW);
-            record.setRejectionReason("System error during automated OCR extraction: " + e.getMessage());
-            kycRecordRepo.save(record);
+        UUID recordId = kycEvent.getKycRecordId();
+        Optional<KycService.VerificationTask> task = kycService.startAutomatedVerification(recordId);
+        if (task.isEmpty()) {
+            return;
         }
+
+        Map<String, IdentityDocumentField> extractedData;
+        try {
+            byte[] document = storageService.downloadKycDocument(task.get().documentKey());
+            extractedData = kycService.extractIdInformation(document);
+        } catch (Exception e) {
+            // The document couldn't be read or analysed (storage/OCR outage, unreadable image):
+            // a person decides instead of guessing.
+            log.warn("Automated KYC could not run for record {}; sending it to manual review", recordId, e);
+            kycService.sendToManualReview(recordId,
+                    "Automated OCR could not be completed (" + e.getClass().getSimpleName() + ")");
+            return;
+        }
+
+        // Outside the catch on purpose: a database failure here should retry the message, not
+        // label the member's document as unreadable.
+        kycService.completeAutomatedVerification(recordId, extractedData);
     }
 }

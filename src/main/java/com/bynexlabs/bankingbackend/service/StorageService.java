@@ -7,6 +7,9 @@ import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.core.ResponseBytes;
 
 import java.io.IOException;
 import java.util.UUID;
@@ -40,6 +43,16 @@ public class StorageService {
         );
 
         return objectKey;
+    }
+
+    /** Reads a KYC document back from the private bucket by its object key. */
+    public byte[] downloadKycDocument(String objectKey) {
+        GetObjectRequest request = GetObjectRequest.builder()
+                .bucket(bucketName)
+                .key(objectKey)
+                .build();
+        ResponseBytes<GetObjectResponse> objectBytes = s3Client.getObjectAsBytes(request);
+        return objectBytes.asByteArray();
     }
 
     private String getFileExtension(String fileName) {

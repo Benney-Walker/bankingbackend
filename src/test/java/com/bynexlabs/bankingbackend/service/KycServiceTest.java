@@ -71,6 +71,8 @@ class KycServiceTest {
     private static final byte[] JPEG_BYTES = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10, 'J', 'F', 'I', 'F'};
     private final MockMultipartFile file = new MockMultipartFile("file", "card.jpg", "image/jpeg", JPEG_BYTES);
 
+    private static final String ID_NUMBER = "GHA-123456789-0";
+
     private final Staff registrar = staff("900105");
     private final Staff otherAgent = staff("900106");
     private final Staff admin = staff("900100");
@@ -128,7 +130,7 @@ class KycServiceTest {
 
     @Test
     void unknownDocumentTypeIsRejectedBeforeUploading() {
-        assertThatThrownBy(() -> kycService.submitKyc(memberId, "GHANA_CARD", file, registrar))
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "GHANA_CARD", ID_NUMBER, file, registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("ECOWAS_CARD");
         verifyNoInteractions(storageService, kycRepository, outboxService);
@@ -138,7 +140,7 @@ class KycServiceTest {
     void nonImageFileIsRejectedBeforeAnyDatabaseWork() {
         MockMultipartFile pdf = new MockMultipartFile("file", "card.jpg", "image/jpeg", "%PDF-1.7".getBytes());
 
-        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", pdf, registrar))
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", ID_NUMBER, pdf, registrar))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("The KYC document must be a JPEG or PNG image");
         verifyNoInteractions(memberRepository, kycRepository, storageService);
@@ -148,7 +150,7 @@ class KycServiceTest {
     void unknownMemberIsRejectedBeforeUploading() {
         when(memberRepository.findById(memberId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> kycService.submitKyc(memberId, "voter_card", file, registrar))
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "voter_card", ID_NUMBER, file, registrar))
                 .isInstanceOf(ResourceNotFoundException.class);
         verifyNoInteractions(storageService, outboxService);
     }
@@ -160,7 +162,7 @@ class KycServiceTest {
                 .thenReturn("kyc/" + memberId + "/x.jpg");
         givenSaveAndFlushAssignsId();
 
-        kycService.submitKyc(memberId, "voter_card", file, otherAgent);
+        kycService.submitKyc(memberId, "voter_card", ID_NUMBER, file, otherAgent);
 
         ArgumentCaptor<MemberKycRecord> saved = ArgumentCaptor.forClass(MemberKycRecord.class);
         verify(kycRepository).saveAndFlush(saved.capture());
@@ -168,6 +170,7 @@ class KycServiceTest {
         assertThat(saved.getValue().getDocumentType()).isEqualTo(KycDocumentType.VOTER_CARD);
         assertThat(saved.getValue().getDocumentUrl()).isEqualTo("kyc/" + memberId + "/x.jpg");
         assertThat(saved.getValue().getVerifiedAt()).isNull();
+        assertThat(saved.getValue().getIdNumber()).isEqualTo(ID_NUMBER);
         verify(outboxService).enqueue(RabbitMQConfig.EXCHANGE_NAME, RabbitMQConfig.KYC_VERIFICATION_ROUTING_KEY,
                 KycVerificationEvent.builder().kycRecordId(recordId).build());
         assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
@@ -180,9 +183,33 @@ class KycServiceTest {
         when(kycRepository.saveAndFlush(any(MemberKycRecord.class)))
                 .thenThrow(new DataIntegrityViolationException("uq_member_kyc_records_member"));
 
-        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", file, registrar))
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", ID_NUMBER, file, registrar))
                 .isInstanceOf(ConflictException.class);
         verifyNoInteractions(outboxService);
+    }
+
+    @Test
+    void idNumberIsTrimmedAndUpperCased() {
+        assertThat(KycService.normalizeIdNumber("  gha-123456789-0 ")).isEqualTo(ID_NUMBER);
+    }
+
+    @Test
+    void blankIdNumberIsRejectedBeforeUploading() {
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", "  ", file, registrar))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("ID number is required");
+        verifyNoInteractions(storageService, kycRepository);
+    }
+
+    @Test
+    void idNumberOfAnotherMemberIsAConflict() {
+        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member(registrar)));
+        when(kycRepository.existsByIdNumberAndMember_IdNot(ID_NUMBER, memberId)).thenReturn(true);
+
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "ECOWAS_CARD", "gha-123456789-0", file, registrar))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("This ID number is already registered to another member");
+        verifyNoInteractions(storageService, outboxService);
     }
 
     // --- re-upload rules (D8) ---
@@ -192,7 +219,7 @@ class KycServiceTest {
         when(memberRepository.findById(memberId)).thenReturn(Optional.of(member(registrar)));
         when(kycRepository.findByMember_Id(memberId)).thenReturn(Optional.of(record(KycStatus.MANUAL_REVIEW)));
 
-        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", file, registrar))
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", ID_NUMBER, file, registrar))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("A KYC document has already been submitted for this member");
         verifyNoInteractions(storageService, outboxService);
@@ -203,7 +230,7 @@ class KycServiceTest {
         when(memberRepository.findById(memberId)).thenReturn(Optional.of(member(registrar)));
         when(kycRepository.findByMember_Id(memberId)).thenReturn(Optional.of(record(KycStatus.REJECTED)));
 
-        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", file, otherAgent))
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", ID_NUMBER, file, otherAgent))
                 .isInstanceOf(ForbiddenException.class);
         verifyNoInteractions(storageService, outboxService);
     }
@@ -213,7 +240,7 @@ class KycServiceTest {
         when(memberRepository.findById(memberId)).thenReturn(Optional.of(member(null)));
         when(kycRepository.findByMember_Id(memberId)).thenReturn(Optional.of(record(KycStatus.REJECTED)));
 
-        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", file, admin))
+        assertThatThrownBy(() -> kycService.submitKyc(memberId, "VOTER_CARD", ID_NUMBER, file, admin))
                 .isInstanceOf(ForbiddenException.class);
         verifyNoInteractions(storageService);
     }
@@ -231,9 +258,11 @@ class KycServiceTest {
                 .thenReturn("kyc/" + memberId + "/new.jpg");
         givenSaveAndFlushAssignsId();
 
-        kycService.submitKyc(memberId, "ECOWAS_CARD", file, registrar);
+        rejected.setIdNumber("1234567890");
+        kycService.submitKyc(memberId, "ECOWAS_CARD", ID_NUMBER, file, registrar);
 
         assertThat(rejected.getStatus()).isEqualTo(KycStatus.PENDING);
+        assertThat(rejected.getIdNumber()).isEqualTo(ID_NUMBER);
         assertThat(rejected.getDocumentUrl()).isEqualTo("kyc/" + memberId + "/new.jpg");
         assertThat(rejected.getDocumentType()).isEqualTo(KycDocumentType.ECOWAS_CARD);
         assertThat(rejected.getRejectionReason()).isNull();

@@ -76,15 +76,19 @@ public class KycService {
      * file is deleted from R2 once the change has committed.
      */
     @Transactional
-    public ResponseEntity<?> submitKyc(UUID memberId, String documentType, MultipartFile file, Staff uploader) {
+    public ResponseEntity<?> submitKyc(UUID memberId, String documentType, String idNumber, MultipartFile file, Staff uploader) {
         if (uploader == null) {
             throw new UnauthorizedException("Staff account not found or inactive");
         }
         // Check the request before uploading anything, so bad input leaves no orphaned file in R2.
         KycDocumentType type = parseDocumentType(documentType);
+        String normalizedIdNumber = normalizeIdNumber(idNumber);
         KycUploadRules.ImageType imageType = KycUploadRules.validate(file);
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        if (kycRepository.existsByIdNumberAndMember_IdNot(normalizedIdNumber, memberId)) {
+            throw new ConflictException("This ID number is already registered to another member");
+        }
 
         MemberKycRecord existing = kycRepository.findByMember_Id(memberId).orElse(null);
         if (existing != null) {
@@ -112,6 +116,7 @@ public class KycService {
             kycRecord.setStaff(null);
         }
         kycRecord.setDocumentType(type);
+        kycRecord.setIdNumber(normalizedIdNumber);
         kycRecord.setStatus(KycStatus.PENDING);
         kycRecord.setDocumentUrl(documentKey);
 
@@ -120,7 +125,9 @@ public class KycService {
             // Flush now so a simultaneous first upload hits the unique constraint here, as a 409.
             savedRecord = kycRepository.saveAndFlush(kycRecord);
         } catch (DataIntegrityViolationException e) {
-            throw new ConflictException("A KYC document has already been submitted for this member");
+            // A simultaneous submission for the same member, or the same ID number for another
+            // member, reached the database constraint first (V19 / V21).
+            throw new ConflictException("A KYC record for this member or this ID number already exists");
         }
 
         // Through the outbox: the verification message exists only if the record committed,
@@ -308,6 +315,20 @@ public class KycService {
 
     public String extractKeyFromUrl(String url) {
         return url.substring(url.indexOf("kyc/"));
+    }
+
+    // Stored trimmed and upper-cased so the uniqueness check and the comparison with OCR don't
+    // depend on how staff typed it. Per-card-type format rules come once the owner confirms
+    // the formats (roadmap 3.5 follow-up).
+    static String normalizeIdNumber(String idNumber) {
+        if (idNumber == null || idNumber.isBlank()) {
+            throw new BadRequestException("ID number is required");
+        }
+        String normalized = idNumber.trim().toUpperCase();
+        if (normalized.length() > 50) {
+            throw new BadRequestException("ID number must be at most 50 characters");
+        }
+        return normalized;
     }
 
     private KycDocumentType parseDocumentType(String documentType) {

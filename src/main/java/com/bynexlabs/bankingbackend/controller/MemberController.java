@@ -65,9 +65,10 @@ public class MemberController {
     )
     public ResponseEntity<?> submitKyc(@RequestParam("memberId") UUID memberId,
                                        @RequestParam("documentType") String documentType,
+                                       @RequestParam("idNumber") String idNumber,
                                        @RequestParam("file") MultipartFile file) {
 
-        return kycService.submitKyc(memberId, documentType, file, staffProvider.getStaff());
+        return kycService.submitKyc(memberId, documentType, idNumber, file, staffProvider.getStaff());
     }
 
     // Owner rule (2026-11-07): only an ADMINISTRATOR approves or rejects KYC manually.

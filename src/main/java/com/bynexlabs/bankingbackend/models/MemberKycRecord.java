@@ -54,4 +54,9 @@ public class MemberKycRecord {
 
     @Column(name = "document_url", nullable = false)
     private String documentUrl;
+
+    // Number of the identity document, as typed by staff on the upload form (V21). Unique across
+    // members; stored trimmed and upper-cased.
+    @Column(name = "id_number", length = 50, unique = true)
+    private String idNumber;
 }

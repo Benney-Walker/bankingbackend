@@ -15,6 +15,9 @@ import java.util.UUID;
 public interface MemberKycRecordRepo extends JpaRepository<MemberKycRecord, UUID> {
     Optional<MemberKycRecord> findByMember_Id(UUID memberId);
 
+    // Owner rule: an ID document number belongs to one member only.
+    boolean existsByIdNumberAndMember_IdNot(String idNumber, UUID memberId);
+
     // Locks the record while an automated result is written, so it can't race a manual approval
     // or a duplicate delivery of the same verification message.
     @Lock(LockModeType.PESSIMISTIC_WRITE)

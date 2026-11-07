@@ -1,17 +1,24 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
+import com.bynexlabs.bankingbackend.DTO.staff.StaffResponse;
+import com.bynexlabs.bankingbackend.DTO.staff.StaffUpdateRequest;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
 import com.bynexlabs.bankingbackend.Utility.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.IdGenerator;
+import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.models.StaffRoles;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -36,19 +44,84 @@ public class StaffService {
 
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
 
+    // Upper bound on the staff list page size, so one request can't pull the whole table.
+    static final int MAX_PAGE_SIZE = 100;
+
     public Staff getStaffDetails(String staffId){
         return staffRepo.findByStaffId(staffId).orElse(null);
     }
 
-    @Transactional
-    public ResponseEntity<?> addNewStaff(StaffDetails staffDetails){
-        LocalDate dob = LocalDate.parse(staffDetails.getDateOfBirth(), DateTimeFormatter.ISO_DATE);
+    @Transactional(readOnly = true)
+    public PagedModel<StaffResponse> listStaff(int page, int size) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
+        }
+        Page<StaffResponse> staff = staffRepo
+                .findAll(PageRequest.of(page, size, Sort.by("staffId")))
+                .map(StaffResponse::from);
+        return new PagedModel<>(staff);
+    }
 
-        // Validate the input before touching the database or consuming a staff ID.
-        String phoneNumber = staffDetails.getPhoneNumber();
+    @Transactional(readOnly = true)
+    public StaffResponse getStaff(String staffId) {
+        return StaffResponse.from(findStaffOrThrow(staffId));
+    }
+
+    @Transactional
+    public StaffResponse updateStaffProfile(String staffId, StaffUpdateRequest request) {
+        Staff staff = findStaffOrThrow(staffId);
+        LocalDate dob = parseDateOfBirth(request.getDateOfBirth());
+        validatePhoneNumber(request.getPhoneNumber());
+
+        // Same duplicate rules as add-staff, ignoring the staff member being edited.
+        if (staffRepo.existsByFirstNameAndLastNameAndDateOfBirthAndStaffIdNot(
+                request.getFirstName(), request.getLastName(), dob, staffId)) {
+            throw new ConflictException("Staff already exist");
+        }
+        if (staffRepo.existsByPhoneNumberAndStaffIdNot(request.getPhoneNumber(), staffId)) {
+            throw new ConflictException("Phone number already exist");
+        }
+        if (staffRepo.existsByEmailAndStaffIdNot(request.getEmail(), staffId)) {
+            throw new ConflictException("Email already exist");
+        }
+
+        staff.setFirstName(request.getFirstName());
+        staff.setMiddleName(request.getMiddleName() == null ? " " : request.getMiddleName());
+        staff.setLastName(request.getLastName());
+        staff.setDateOfBirth(dob);
+        staff.setPhoneNumber(request.getPhoneNumber());
+        staff.setEmail(request.getEmail());
+        staff.setResidentialAddress(request.getResidentialAddress());
+        staff.setUpdatedAt(LocalDateTime.now());
+
+        return StaffResponse.from(staffRepo.save(staff));
+    }
+
+    private Staff findStaffOrThrow(String staffId) {
+        return staffRepo.findByStaffId(staffId)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff not found"));
+    }
+
+    private LocalDate parseDateOfBirth(String dateOfBirth) {
+        try {
+            return LocalDate.parse(dateOfBirth, DateTimeFormatter.ISO_DATE);
+        } catch (DateTimeParseException e) {
+            throw new BadRequestException("Invalid date of birth; expected yyyy-MM-dd");
+        }
+    }
+
+    // Staff phone numbers are stored in the local 10-digit format starting with 0.
+    private void validatePhoneNumber(String phoneNumber) {
         if (!phoneNumber.startsWith("0") || phoneNumber.length() != 10) {
             throw new BadRequestException("Invalid phone number");
         }
+    }
+
+    @Transactional
+    public ResponseEntity<?> addNewStaff(StaffDetails staffDetails){
+        // Validate the input before touching the database or consuming a staff ID.
+        LocalDate dob = parseDateOfBirth(staffDetails.getDateOfBirth());
+        validatePhoneNumber(staffDetails.getPhoneNumber());
         List<Roles> roles = parseRoles(staffDetails.getRoles());
 
         if (

@@ -28,4 +28,13 @@ public interface StaffRepo extends JpaRepository<Staff, UUID> {
     boolean existsByPhoneNumber(String phoneNumber);
 
     boolean existsByEmail(String email);
+
+    // Duplicate checks for updates: the same values on the staff member being edited are fine.
+    boolean existsByFirstNameAndLastNameAndDateOfBirthAndStaffIdNot(
+            String firstName, String lastName, LocalDate dateOfBirth, String staffId
+    );
+
+    boolean existsByPhoneNumberAndStaffIdNot(String phoneNumber, String staffId);
+
+    boolean existsByEmailAndStaffIdNot(String email, String staffId);
 }

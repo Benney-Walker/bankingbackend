@@ -62,9 +62,14 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 | POST | `/api/auth/v1/login` | Public | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
 | POST | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body; returns `{ "authToken": ... }` |
 | POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR` |
+| GET | `/api/staff/v1/all-staff?page=0&size=20` | ADMINISTRATOR | Staff list sorted by staff ID; `size` 1–100. Returns `{ "content": [staff…], "page": { "size", "number", "totalElements", "totalPages" } }` |
+| GET | `/api/staff/v1/staff-details/{staffId}` | ADMINISTRATOR | One staff member (404 if unknown) |
+| PUT | `/api/staff/v1/update-staff/{staffId}` | ADMINISTRATOR | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress`. Same validation and duplicate checks as add-staff, ignoring the staff member being edited. Returns the updated staff |
 | POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus a `SAVINGS` or `CURRENT` account, both inactive with zero balance |
 | POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `file`; stores the document in R2 and queues verification |
 | POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR, AGENT | Mark KYC verified and activate the member and their accounts |
+
+Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
 
 ### Error responses
 
@@ -82,10 +87,10 @@ Every error uses the same JSON body:
 
 | Status | When |
 |---|---|
-| 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path), invalid staff phone number (must be 10 digits starting with 0), unknown staff role |
+| 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path), invalid staff phone number (must be 10 digits starting with 0), staff date of birth not in yyyy-MM-dd format, unknown staff role, staff list `page`/`size` out of range |
 | 401 | Wrong staff ID or password (an inactive account gets the same response), invalid refresh token, a missing/expired access token, or a token belonging to staff who are no longer active |
 | 403 | Authenticated, but the staff member's role isn't allowed to call the endpoint |
-| 404 | Unknown path, or a record that doesn't exist (e.g. manual KYC approval for an unknown member) |
+| 404 | Unknown path, or a record that doesn't exist (e.g. an unknown staff ID, or manual KYC approval for an unknown member) |
 | 405 | HTTP method not supported by the endpoint |
 | 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone |
 | 500 | Anything unexpected; the body never contains internal details, which are logged instead |
@@ -126,3 +131,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **1.2 Active-staff enforcement and auth fixes:** inactive staff are rejected at login, on refresh and on every request; login authorities use role names; staff phone check fixed (`&&` → `||`) and, with unknown roles, now returns 400 (decision D5a); CORS origins moved to `app.cors.allowed-origins` with the trailing-slash origin fixed; duplicate AMQP starter removed from `pom.xml`.
 - **1.1 Endpoint role checks:** method security enabled; add-staff is ADMINISTRATOR only; member registration, KYC upload and manual KYC approval are ADMINISTRATOR or AGENT; `@PreAuthorize` denials return 403 instead of 500.
 - **1.3 Refresh-token method:** `/api/auth/v1/refresh-token` is now `POST` (decision D4); `GET` returns 405. Clients must update their call.
+- **1.5a Staff list, details and profile update:** ADMINISTRATOR-only endpoints to page through staff, view one, and update profile details; an invalid staff date of birth now returns 400 instead of 500.

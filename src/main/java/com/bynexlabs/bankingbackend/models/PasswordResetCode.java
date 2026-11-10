@@ -17,8 +17,6 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
-
-/** The pending password-reset code for one staff member. The plain code is never stored. */
 @Getter
 @Setter
 @Builder
@@ -48,4 +46,7 @@ public class PasswordResetCode {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "is_sent", nullable = false)
+    private boolean isSent;
 }

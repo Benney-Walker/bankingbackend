@@ -57,11 +57,6 @@ public class MemberService {
         return memberRepository.findById(memberId).orElse(null);
     }
 
-    /**
-     * Saves the member (PENDING) and both account-creation messages in one transaction via the
-     * outbox: either all three are stored or none are, so a member can never end up without
-     * accounts because RabbitMQ was unavailable at the time.
-     */
     @Transactional
     public ResponseEntity<?> registerNewMember(MemberDetails request, Staff registeredBy) {
         if (registeredBy == null) {

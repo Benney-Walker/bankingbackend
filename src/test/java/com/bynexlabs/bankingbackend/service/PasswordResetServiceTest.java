@@ -3,6 +3,7 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
+import com.bynexlabs.bankingbackend.Utility.JwtUtility;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
@@ -61,9 +62,11 @@ class PasswordResetServiceTest {
 
     private Staff staff;
 
+    private JwtUtility jwtUtility;
+
     @BeforeEach
     void setUp() {
-        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService, auditLogService);
+        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService, jwtUtility);
         staff = Staff.builder()
                 .id(UUID.randomUUID())
                 .staffId(STAFF_ID)
@@ -89,7 +92,7 @@ class PasswordResetServiceTest {
     void requestForUnknownStaffDoesNothingVisible() {
         when(staffRepo.findByStaffId("900999")).thenReturn(Optional.empty());
 
-        service.requestReset("900999");
+        service.requestResetCode("900999");
 
         verifyNoInteractions(resetCodeRepo, smsService);
     }
@@ -99,7 +102,7 @@ class PasswordResetServiceTest {
         staff.setStaffStatus(StaffStatus.INACTIVE);
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
 
-        service.requestReset(STAFF_ID);
+        service.requestResetCode(STAFF_ID);
 
         verifyNoInteractions(resetCodeRepo, smsService);
     }
@@ -110,7 +113,7 @@ class PasswordResetServiceTest {
         when(resetCodeRepo.findByStaff_Id(staff.getId())).thenReturn(Optional.empty());
         when(smsService.sendSms(anyString(), anyString())).thenReturn(SmsResponse.builder().success(true).build());
 
-        service.requestReset(STAFF_ID);
+        service.requestResetCode(STAFF_ID);
 
         ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
         verify(smsService).sendSms(message.capture(), eq(PHONE));
@@ -137,7 +140,7 @@ class PasswordResetServiceTest {
         when(resetCodeRepo.findByStaff_Id(staff.getId())).thenReturn(Optional.of(existing));
         when(smsService.sendSms(anyString(), anyString())).thenReturn(SmsResponse.builder().success(true).build());
 
-        service.requestReset(STAFF_ID);
+        service.requestResetCode(STAFF_ID);
 
         verify(resetCodeRepo).save(existing);
         assertThat(existing.getCodeHash()).isNotEqualTo(oldHash);
@@ -152,7 +155,7 @@ class PasswordResetServiceTest {
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
         when(resetCodeRepo.findByStaff_Id(staff.getId())).thenReturn(Optional.of(recent));
 
-        service.requestReset(STAFF_ID);
+        service.requestResetCode(STAFF_ID);
 
         verify(resetCodeRepo, never()).save(any());
         verifyNoInteractions(smsService);
@@ -171,7 +174,7 @@ class PasswordResetServiceTest {
         when(resetCodeRepo.findByStaff_Id(staff.getId())).thenReturn(Optional.empty());
         when(smsService.sendSms(anyString(), anyString())).thenReturn(SmsResponse.builder().success(false).build());
 
-        service.requestReset(STAFF_ID);
+        service.requestResetCode(STAFF_ID);
 
         verify(resetCodeRepo).save(any(PasswordResetCode.class));
     }
@@ -184,7 +187,7 @@ class PasswordResetServiceTest {
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
         when(resetCodeRepo.lockByStaffId(staff.getId())).thenReturn(Optional.of(pending));
 
-        service.confirmReset(STAFF_ID, CODE, "new-password-123");
+        service.confirmResetCode(STAFF_ID, CODE);
 
         assertThat(passwordEncoder.matches("new-password-123", staff.getPassword())).isTrue();
         verify(staffRepo).save(staff);
@@ -199,7 +202,7 @@ class PasswordResetServiceTest {
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
         when(resetCodeRepo.lockByStaffId(staff.getId())).thenReturn(Optional.of(pending));
 
-        assertThatThrownBy(() -> service.confirmReset(STAFF_ID, "000000", "new-password-123"))
+        assertThatThrownBy(() -> service.confirmResetCode(STAFF_ID, "000000"))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(PasswordResetService.INVALID_CODE_MESSAGE);
 
@@ -215,7 +218,7 @@ class PasswordResetServiceTest {
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
         when(resetCodeRepo.lockByStaffId(staff.getId())).thenReturn(Optional.of(pending));
 
-        assertThatThrownBy(() -> service.confirmReset(STAFF_ID, "000000", "new-password-123"))
+        assertThatThrownBy(() -> service.confirmResetCode(STAFF_ID, "000000"))
                 .isInstanceOf(BadRequestException.class);
 
         verify(resetCodeRepo).delete(pending);
@@ -228,7 +231,7 @@ class PasswordResetServiceTest {
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
         when(resetCodeRepo.lockByStaffId(staff.getId())).thenReturn(Optional.of(expired));
 
-        assertThatThrownBy(() -> service.confirmReset(STAFF_ID, CODE, "new-password-123"))
+        assertThatThrownBy(() -> service.confirmResetCode(STAFF_ID, CODE))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(PasswordResetService.INVALID_CODE_MESSAGE);
 
@@ -241,7 +244,7 @@ class PasswordResetServiceTest {
         staff.setStaffStatus(StaffStatus.INACTIVE);
         when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
 
-        assertThatThrownBy(() -> service.confirmReset(STAFF_ID, CODE, "new-password-123"))
+        assertThatThrownBy(() -> service.confirmResetCode(STAFF_ID, CODE))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(PasswordResetService.INVALID_CODE_MESSAGE);
         verifyNoInteractions(resetCodeRepo);

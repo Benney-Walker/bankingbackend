@@ -21,12 +21,6 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
-/**
- * Staff self-service password reset (roadmap 1.5c). Owner rules, decided 2026-11-07:
- * the staff member enters their staff ID; a 6-digit code goes to their phone by SMS (email
- * later, once a provider is chosen); the code is valid for 10 minutes and allows 3 wrong
- * attempts; only ACTIVE staff can reset; administrators cannot reset other people's passwords.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor

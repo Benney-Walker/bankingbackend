@@ -3,16 +3,15 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
-import com.bynexlabs.bankingbackend.Utility.BadRequestException;
-import com.bynexlabs.bankingbackend.Utility.ConflictException;
-import com.bynexlabs.bankingbackend.Utility.InternalServerError;
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
+import com.bynexlabs.bankingbackend.exception.ConflictException;
+import com.bynexlabs.bankingbackend.exception.InternalServerError;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
 import com.bynexlabs.bankingbackend.models.PasswordResetCode;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -21,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * Staff self-service password reset (roadmap 1.5c). Owner rules, decided 2026-11-07:
@@ -87,7 +85,7 @@ public class PasswordResetService {
 
 
     @Transactional(noRollbackFor = BadRequestException.class)
-    public ResponseEntity confirmReset(String staffId, String code, String newPassword) {
+    public ResponseEntity<?> confirmReset(String staffId, String code) {
         Staff staff = staffRepo.findByStaffId(staffId)
                 .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
                 .orElseThrow(() -> new BadRequestException(INVALID_CODE_MESSAGE));
@@ -102,7 +100,6 @@ public class PasswordResetService {
         if (!passwordEncoder.matches(code, resetCode.getCodeHash())) {
             int attempts = resetCode.getFailedAttempts() + 1;
             if (attempts >= MAX_FAILED_ATTEMPTS) {
-                // Used up: the staff member must request a fresh code.
                 resetCodeRepo.delete(resetCode);
             } else {
                 resetCode.setFailedAttempts(attempts);

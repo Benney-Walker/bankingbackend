@@ -31,7 +31,7 @@ public class AuthController {
         return authService.refreshAccessToken(refreshRequest);
     }
 
-    @PostMapping("/v1/password-reset/request")
+    @PostMapping("/v1/password-reset/request-code")
     public ResponseEntity<?> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
         passwordResetService.requestReset(request.getStaffId());
         return ResponseEntity.ok(Map.of(
@@ -39,7 +39,7 @@ public class AuthController {
         ));
     }
 
-    @PostMapping("/v1/password-reset/confirm")
+    @PostMapping("/v1/password-reset/confirm-code")
     public ResponseEntity<?> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
         passwordResetService.confirmReset(request.getStaffId(), request.getCode(), request.getNewPassword());
         return ResponseEntity.ok(Map.of("message", "Password has been reset"));

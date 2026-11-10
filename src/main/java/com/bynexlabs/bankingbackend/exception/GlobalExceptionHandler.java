@@ -1,5 +1,6 @@
-package com.bynexlabs.bankingbackend.Utility;
+package com.bynexlabs.bankingbackend.exception;
 
+import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;

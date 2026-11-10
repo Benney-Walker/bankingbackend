@@ -1,9 +1,9 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
-import com.bynexlabs.bankingbackend.Utility.BadRequestException;
-import com.bynexlabs.bankingbackend.Utility.ConflictException;
-import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
+import com.bynexlabs.bankingbackend.exception.ConflictException;
+import com.bynexlabs.bankingbackend.exception.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.enums.AccountStatus;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.MemberAccount;

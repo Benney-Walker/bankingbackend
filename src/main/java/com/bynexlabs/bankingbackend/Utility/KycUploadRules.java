@@ -1,5 +1,7 @@
 package com.bynexlabs.bankingbackend.Utility;
 
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
+import com.bynexlabs.bankingbackend.exception.PayloadTooLargeException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;

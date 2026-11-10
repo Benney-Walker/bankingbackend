@@ -1,6 +1,7 @@
 package com.bynexlabs.bankingbackend.Utility;
 
 import com.bynexlabs.bankingbackend.enums.KycDocumentType;
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
 
 import java.util.regex.Pattern;
 

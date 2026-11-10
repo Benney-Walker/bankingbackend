@@ -4,7 +4,7 @@ import com.bynexlabs.bankingbackend.DTO.auth.LoginRequest;
 import com.bynexlabs.bankingbackend.DTO.auth.LoginResponse;
 import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
-import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
+import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.List;
 import java.util.Map;

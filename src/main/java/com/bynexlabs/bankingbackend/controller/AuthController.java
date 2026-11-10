@@ -33,7 +33,7 @@ public class AuthController {
 
     @PostMapping("/v1/password-reset/request-code")
     public ResponseEntity<?> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
-        passwordResetService.requestReset(request.getStaffId());
+        passwordResetService.requestResetCode(request.getStaffId());
         return ResponseEntity.ok(Map.of(
                 "message", "A reset code has been sent via SMS."
         ));
@@ -41,7 +41,7 @@ public class AuthController {
 
     @PostMapping("/v1/password-reset/confirm-code")
     public ResponseEntity<?> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
-        passwordResetService.confirmReset(request.getStaffId(), request.getCode(), request.getNewPassword());
-        return ResponseEntity.ok(Map.of("message", "Password has been reset"));
+
+        return passwordResetService.confirmResetCode(request.getStaffId(), request.getCode());
     }
 }

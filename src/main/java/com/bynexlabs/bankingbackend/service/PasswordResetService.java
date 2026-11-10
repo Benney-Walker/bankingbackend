@@ -4,14 +4,16 @@ import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
-import com.bynexlabs.bankingbackend.enums.AuditAction;
-import com.bynexlabs.bankingbackend.enums.AuditTargetType;
+import com.bynexlabs.bankingbackend.Utility.ConflictException;
+import com.bynexlabs.bankingbackend.Utility.InternalServerError;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
 import com.bynexlabs.bankingbackend.models.PasswordResetCode;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * Staff self-service password reset (roadmap 1.5c). Owner rules, decided 2026-11-07:
@@ -32,8 +35,7 @@ import java.time.LocalDateTime;
 public class PasswordResetService {
 
     static final Duration CODE_VALIDITY = Duration.ofMinutes(10);
-    // Owner rule: at most one code per staff ID per minute, so the request endpoint can't be
-    // used to run up SMS costs or flood a staff member's phone.
+
     static final Duration RESEND_COOLDOWN = Duration.ofMinutes(1);
     static final int MAX_FAILED_ATTEMPTS = 3;
     static final String INVALID_CODE_MESSAGE = "Invalid or expired reset code";
@@ -48,32 +50,22 @@ public class PasswordResetService {
 
     private final SmsInterface smsService;
 
-    private final AuditLogService auditLogService;
-
-    /**
-     * Issues a new code and texts it to the staff member. Deliberately not transactional: the
-     * code is saved first, and the SMS call happens after that commit, outside any transaction.
-     * The caller always gets the same response, so this endpoint can't be used to discover
-     * which staff IDs exist or are active.
-     */
     public void requestReset(String staffId) {
         Staff staff = staffRepo.findByStaffId(staffId)
                 .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
                 .orElse(null);
         if (staff == null) {
             log.info("Password reset requested for unknown or inactive staff ID {}", staffId);
-            return;
+            throw new BadRequestException("Invalid staff Id or Inactive staff account");
         }
 
         LocalDateTime now = LocalDateTime.now();
 
-        // One pending code per staff member: a new request replaces the previous code, unless
-        // that code was issued within the cooldown, in which case nothing is sent.
         PasswordResetCode resetCode = resetCodeRepo.findByStaff_Id(staff.getId())
                 .orElseGet(() -> PasswordResetCode.builder().staff(staff).build());
         if (resetCode.getCreatedAt() != null && resetCode.getCreatedAt().plus(RESEND_COOLDOWN).isAfter(now)) {
             log.info("Password reset for staff {} requested again within the cooldown; no new code sent", staffId);
-            return;
+            throw new ConflictException("Password can only be sent once in a minute");
         }
 
         String code = String.format("%06d", RANDOM.nextInt(1_000_000));
@@ -81,21 +73,21 @@ public class PasswordResetService {
         resetCode.setExpiresAt(now.plus(CODE_VALIDITY));
         resetCode.setFailedAttempts(0);
         resetCode.setCreatedAt(now);
-        resetCodeRepo.save(resetCode);
+        resetCode.setSent(false);
 
         SmsResponse sms = smsService.sendSms(resetMessage(code), staff.getPhoneNumber());
         if (sms == null || !sms.isSuccess()) {
-            // The code is saved; the staff member can simply request again.
             log.warn("Password reset SMS could not be sent for staff {}", staffId);
+            resetCodeRepo.save(resetCode);
+            throw new InternalServerError("Could not send sms! Try again later.");
         }
+        resetCode.setSent(true);
+        resetCodeRepo.save(resetCode);
     }
 
-    /**
-     * Checks the code and sets the new password. Wrong attempts are counted and committed even
-     * though the request fails, hence noRollbackFor; the code row is locked while it is checked.
-     */
+
     @Transactional(noRollbackFor = BadRequestException.class)
-    public void confirmReset(String staffId, String code, String newPassword) {
+    public ResponseEntity confirmReset(String staffId, String code, String newPassword) {
         Staff staff = staffRepo.findByStaffId(staffId)
                 .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
                 .orElseThrow(() -> new BadRequestException(INVALID_CODE_MESSAGE));
@@ -123,8 +115,6 @@ public class PasswordResetService {
         staff.setUpdatedAt(LocalDateTime.now());
         staffRepo.save(staff);
         resetCodeRepo.delete(resetCode);
-        // The staff member resets their own password; nobody is logged in during a reset.
-        auditLogService.recordAs(staffId, AuditAction.STAFF_PASSWORD_RESET, AuditTargetType.STAFF, staffId, "Reset with SMS code");
         log.info("Password reset completed for staff {}", staffId);
     }
 

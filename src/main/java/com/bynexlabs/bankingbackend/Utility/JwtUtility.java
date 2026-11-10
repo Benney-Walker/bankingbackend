@@ -93,6 +93,9 @@ public class JwtUtility {
     public boolean isRefreshToken(String token) {
         return validateToken(token) && REFRESH.equals(extractType(token));
     }
+    public boolean isResetToken(String token) {
+        return validateToken(token) && RESET.equals(extractType(token));
+    }
 
     public Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()

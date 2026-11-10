@@ -3,6 +3,7 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
+import com.bynexlabs.bankingbackend.Utility.JwtUtility;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
 import com.bynexlabs.bankingbackend.exception.InternalServerError;
@@ -12,6 +13,7 @@ import com.bynexlabs.bankingbackend.models.PasswordResetCode;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -104,11 +107,13 @@ public class PasswordResetService {
             throw new BadRequestException(INVALID_CODE_MESSAGE);
         }
 
-        staff.setPassword(passwordEncoder.encode(newPassword));
-        staff.setUpdatedAt(LocalDateTime.now());
-        staffRepo.save(staff);
         resetCodeRepo.delete(resetCode);
-        log.info("Password reset completed for staff {}", staffId);
+
+       // Generate short lived reset token
+        String resetToken = jwtUtility.generateResetToken(staffId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
+                "message", resetToken
+        ));
     }
 
     // Wording approved by the owner (2026-11-07).

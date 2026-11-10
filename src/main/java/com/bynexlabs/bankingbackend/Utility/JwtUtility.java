@@ -24,6 +24,9 @@ public class JwtUtility {
     @Value("${jwt.refresh-expiration}")
     private long refreshExpirationInMs;
 
+    @Value("${jwt.reset-expiration}")
+    private long resetExpirationInMs;
+
     private static final String TYPE_CLAIM = "type";
     private static final String ACCESS = "access";
     private static final String REFRESH = "refresh";

@@ -1,4 +1,4 @@
-package com.bynexlabs.bankingbackend.Utility;
+package com.bynexlabs.bankingbackend.exception;
 
 import lombok.Getter;
 import org.springframework.http.HttpStatus;

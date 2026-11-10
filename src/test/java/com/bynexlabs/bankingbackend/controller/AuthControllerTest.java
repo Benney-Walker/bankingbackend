@@ -74,7 +74,7 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value(
                         "If the staff ID belongs to an active staff member, a reset code has been sent by SMS."));
-        verify(passwordResetService).requestReset("900999");
+        verify(passwordResetService).requestResetCode("900999");
     }
 
     @Test
@@ -104,7 +104,7 @@ class AuthControllerTest {
                         .content("{\"staffId\":\"900100\",\"code\":\"123456\",\"newPassword\":\"long-enough-1\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Password has been reset"));
-        verify(passwordResetService).confirmReset("900100", "123456", "long-enough-1");
+        verify(passwordResetService).confirmResetCode("900100", "123456");
     }
 
     @Test

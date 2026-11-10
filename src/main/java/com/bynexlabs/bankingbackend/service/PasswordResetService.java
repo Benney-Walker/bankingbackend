@@ -42,7 +42,9 @@ public class PasswordResetService {
 
     private final SmsInterface smsService;
 
-    public void requestReset(String staffId) {
+    private final JwtUtility jwtUtility;
+
+    public void requestResetCode(String staffId) {
         Staff staff = staffRepo.findByStaffId(staffId)
                 .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
                 .orElse(null);
@@ -79,7 +81,7 @@ public class PasswordResetService {
 
 
     @Transactional(noRollbackFor = BadRequestException.class)
-    public ResponseEntity<?> confirmReset(String staffId, String code) {
+    public ResponseEntity<?> confirmResetCode(String staffId, String code) {
         Staff staff = staffRepo.findByStaffId(staffId)
                 .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
                 .orElseThrow(() -> new BadRequestException(INVALID_CODE_MESSAGE));

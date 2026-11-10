@@ -15,6 +15,8 @@ import com.bynexlabs.bankingbackend.Utility.IdNumberRules;
 import com.bynexlabs.bankingbackend.Utility.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.KycDocumentType;
 import com.bynexlabs.bankingbackend.enums.KycStatus;
 import com.bynexlabs.bankingbackend.enums.VerificationMethod;
@@ -72,6 +74,8 @@ public class KycService {
     private final OutboxService outboxService;
 
     private final MemberAccountService memberAccountService;
+
+    private final AuditLogService auditLogService;
 
     private static final float CONFIDENCE_THRESHOLD = 85.0f; // 85% confidence required
 
@@ -147,6 +151,10 @@ public class KycService {
                 .kycRecordId(savedRecord.getId())
                 .build();
         outboxService.enqueue(RabbitMQConfig.EXCHANGE_NAME, RabbitMQConfig.KYC_VERIFICATION_ROUTING_KEY, kycEvent);
+        // The ID number isn't repeated in the log; it's on the KYC record.
+        auditLogService.recordAs(uploader.getStaffId(),
+                existing == null ? AuditAction.KYC_SUBMITTED : AuditAction.KYC_RESUBMITTED,
+                AuditTargetType.MEMBER, memberId, "Document type " + type);
 
         if (replacedKey != null) {
             deleteAfterCommit(replacedKey);
@@ -207,6 +215,8 @@ public class KycService {
         MemberKycRecord kycRecord = reviewableRecord(memberId);
 
         memberAccountService.activateMemberAccounts(member, kycRecord, VerificationMethod.MANUAL, staff);
+        auditLogService.recordAs(staff.getStaffId(), AuditAction.KYC_APPROVED, AuditTargetType.MEMBER, memberId,
+                "Member and accounts activated");
 
         return ResponseEntity.ok(Map.of(
                 "status", "success"
@@ -232,6 +242,8 @@ public class KycService {
         // verified_by holds the reviewing administrator for either outcome.
         kycRecord.setStaff(staff);
         kycRepository.save(kycRecord);
+        auditLogService.recordAs(staff.getStaffId(), AuditAction.KYC_REJECTED, AuditTargetType.MEMBER, memberId,
+                "Reason: " + reason);
 
         return ResponseEntity.ok(Map.of(
                 "status", "success"
@@ -281,15 +293,16 @@ public class KycService {
     }
 
     /**
-     * Authorises the viewer and resolves the document, in a short read-only transaction. The
-     * caller then downloads it with downloadDocument, outside any transaction.
+     * Authorises the viewer, records the view in the audit log and resolves the document, in a
+     * short transaction. The caller then downloads it with downloadDocument, outside any
+     * transaction.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public KycDocumentRef findDocumentForViewer(UUID memberId, String viewerStaffId, boolean viewerIsAdmin) {
         MemberKycRecord record = visibleRecord(memberId, viewerStaffId, viewerIsAdmin);
         String key = record.getDocumentUrl();
-        // Identity documents are sensitive: record who looked at which member's document.
-        log.info("KYC document of member {} viewed by staff {}", memberId, viewerStaffId);
+        // Identity documents are sensitive: record who opened which member's document.
+        auditLogService.recordAs(viewerStaffId, AuditAction.KYC_DOCUMENT_VIEWED, AuditTargetType.MEMBER, memberId, null);
         return new KycDocumentRef(memberId, key, contentTypeOf(key));
     }
 
@@ -359,9 +372,7 @@ public class KycService {
     public void sendToManualReview(UUID kycRecordId, String reason) {
         MemberKycRecord record = lockPendingRecord(kycRecordId);
         if (record != null) {
-            record.setStatus(KycStatus.MANUAL_REVIEW);
-            record.setRejectionReason(reason);
-            kycRepository.save(record);
+            sendRecordToManualReview(record, reason);
         }
     }
 
@@ -415,6 +426,8 @@ public class KycService {
 
         if (mismatches.isEmpty()) {
             memberAccountService.activateMemberAccounts(member, record, VerificationMethod.AUTOMATED, null);
+            auditLogService.recordSystem(AuditAction.KYC_AUTO_VERIFIED, AuditTargetType.MEMBER, member.getId(),
+                    "Member and accounts activated");
         } else {
             sendRecordToManualReview(record, "Details did not match: " + String.join("; ", mismatches));
         }
@@ -434,6 +447,9 @@ public class KycService {
         record.setStatus(KycStatus.MANUAL_REVIEW);
         record.setRejectionReason(reason);
         kycRepository.save(record);
+        // The reason can quote names and ID numbers, so it stays on the KYC record only.
+        auditLogService.recordSystem(AuditAction.KYC_SENT_TO_MANUAL_REVIEW, AuditTargetType.MEMBER,
+                record.getMember().getId(), "Reason recorded on the KYC record");
     }
 
     private static boolean sameText(String entered, String read) {

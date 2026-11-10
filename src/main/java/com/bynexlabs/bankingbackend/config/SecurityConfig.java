@@ -3,6 +3,7 @@ package com.bynexlabs.bankingbackend.config;
 import com.bynexlabs.bankingbackend.Utility.CustomAccessDeniedHandler;
 import com.bynexlabs.bankingbackend.Utility.CustomAuthEntryPoint;
 import com.bynexlabs.bankingbackend.Utility.JwtAuthenticationFilter;
+import com.bynexlabs.bankingbackend.enums.Roles;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -29,6 +30,8 @@ import java.util.List;
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+
+    static final String[] API_DOCS_PATHS = {"/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**"};
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
@@ -72,7 +75,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/api/admin/**").hasAuthority("ADMINISTRATOR")
+                        // API docs: served only when API_DOCS_ENABLED=true (otherwise 404).
+                        .requestMatchers(API_DOCS_PATHS).permitAll()
+                        // Actuator exposes internal details: administrators only, never public
+                        // (owner decision 2026-11-07). Keep in step with management.endpoints.web.base-path.
+                        .requestMatchers("/actuator/**").hasAuthority(Roles.ADMINISTRATOR.name())
+                        .requestMatchers("/api/admin/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .anyRequest().authenticated()
                 ).sessionManagement( session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)

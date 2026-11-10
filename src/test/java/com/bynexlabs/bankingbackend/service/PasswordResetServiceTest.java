@@ -23,6 +23,8 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
@@ -45,6 +47,9 @@ class PasswordResetServiceTest {
     private StaffRepo staffRepo;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private PasswordResetCodeRepo resetCodeRepo;
 
     @Mock
@@ -58,7 +63,7 @@ class PasswordResetServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService);
+        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService, auditLogService);
         staff = Staff.builder()
                 .id(UUID.randomUUID())
                 .staffId(STAFF_ID)
@@ -184,6 +189,8 @@ class PasswordResetServiceTest {
         assertThat(passwordEncoder.matches("new-password-123", staff.getPassword())).isTrue();
         verify(staffRepo).save(staff);
         verify(resetCodeRepo).delete(pending);
+        verify(auditLogService).recordAs(STAFF_ID, AuditAction.STAFF_PASSWORD_RESET, AuditTargetType.STAFF,
+                STAFF_ID, "Reset with SMS code");
     }
 
     @Test
@@ -199,6 +206,7 @@ class PasswordResetServiceTest {
         assertThat(pending.getFailedAttempts()).isEqualTo(1);
         verify(resetCodeRepo).save(pending);
         verify(staffRepo, never()).save(any());
+        verifyNoInteractions(auditLogService);
     }
 
     @Test

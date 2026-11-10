@@ -4,6 +4,8 @@ import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Utility.BadRequestException;
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
 import com.bynexlabs.bankingbackend.models.PasswordResetCode;
@@ -45,6 +47,8 @@ public class PasswordResetService {
     private final BCryptPasswordEncoder passwordEncoder;
 
     private final SmsInterface smsService;
+
+    private final AuditLogService auditLogService;
 
     /**
      * Issues a new code and texts it to the staff member. Deliberately not transactional: the
@@ -119,6 +123,8 @@ public class PasswordResetService {
         staff.setUpdatedAt(LocalDateTime.now());
         staffRepo.save(staff);
         resetCodeRepo.delete(resetCode);
+        // The staff member resets their own password; nobody is logged in during a reset.
+        auditLogService.recordAs(staffId, AuditAction.STAFF_PASSWORD_RESET, AuditTargetType.STAFF, staffId, "Reset with SMS code");
         log.info("Password reset completed for staff {}", staffId);
     }
 

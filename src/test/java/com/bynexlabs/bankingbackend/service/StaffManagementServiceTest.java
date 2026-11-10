@@ -30,6 +30,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,6 +52,9 @@ class StaffManagementServiceTest {
     private StaffRepo staffRepo;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private StaffRolesRepo staffRolesRepo;
 
     @Mock
@@ -57,7 +64,7 @@ class StaffManagementServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder());
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService);
     }
 
     private Staff existingStaff() {
@@ -165,6 +172,9 @@ class StaffManagementServiceTest {
         assertThat(response.getRoles()).containsExactly(Roles.AGENT);
         assertThat(staff.getPassword()).isEqualTo("$2a$10$existing-hash");
         assertThat(staff.getUpdatedAt()).isAfter(LocalDateTime.of(2026, 1, 5, 9, 0));
+        verify(auditLogService).record(eq(AuditAction.STAFF_PROFILE_UPDATED), eq(AuditTargetType.STAFF), eq(STAFF_ID),
+                argThat((String details) -> details.startsWith("Changed: ") && details.contains("phoneNumber")
+                        && !details.contains("0209876543")));
     }
 
     @Test

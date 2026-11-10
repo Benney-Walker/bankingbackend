@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -50,6 +52,9 @@ class KycReviewServiceTest {
     private MemberRepository memberRepository;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private MemberKycRecordRepo kycRepository;
 
     @Mock
@@ -67,7 +72,7 @@ class KycReviewServiceTest {
 
     @BeforeEach
     void setUp() {
-        kycService = new KycService(memberRepository, kycRepository, storageService, outboxService, memberAccountService);
+        kycService = new KycService(memberRepository, kycRepository, storageService, outboxService, memberAccountService, auditLogService);
     }
 
     private MemberKycRecord record(String registeredByStaffId, String documentKey) {
@@ -176,6 +181,7 @@ class KycReviewServiceTest {
 
         assertThat(document.contentType()).isEqualTo("image/png");
         assertThat(content).containsExactly(9, 9);
+        verify(auditLogService).recordAs(AGENT_ID, AuditAction.KYC_DOCUMENT_VIEWED, AuditTargetType.MEMBER, memberId, null);
     }
 
     @Test

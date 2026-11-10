@@ -34,6 +34,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
 | Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
 | CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
+| API docs | `API_DOCS_ENABLED` (optional, default `false`): serve `/v3/api-docs` and Swagger UI. Leave off in production |
 
 `PUBLIC_URL` is still referenced in the properties file but nothing reads it; KYC documents are stored privately and referenced by object key.
 
@@ -121,6 +122,27 @@ Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundExce
 
 > **One-time step when upgrading from a version before 2.2:** the three work queues now carry a dead-letter argument, and RabbitMQ refuses to redeclare an existing queue with different arguments. Once they're empty, delete `default_share_account_queue`, `other_account_creation_queue` and `kyc_verification_queue` in the RabbitMQ management UI (or `rabbitmqctl delete_queue <name>`) before starting the new version, which recreates them. Messages waiting in the outbox aren't affected.
 
+## Actuator and API docs
+
+- **Actuator:** only `/actuator/health` and `/actuator/info` are exposed, and both need an ADMINISTRATOR access token (401 without a token, 403 for other roles). Health details (database, RabbitMQ, disk) are shown to that administrator. Every other actuator endpoint (env, beans, configprops, heapdump, …) is off.
+- **API docs:** set `API_DOCS_ENABLED=true` to serve the OpenAPI description at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`. Off by default. When on, these pages are public, so keep it off in production. In Swagger UI, use **Authorize** with an access token from login to try endpoints.
+
+## Audit log
+
+Business actions are recorded in the `audit_log` table (V22), in the same database transaction as the action, so an action and its entry are saved together or not at all. Each entry has the time, the acting staff code (empty for automated actions), the action, the target (`STAFF` with a staff code, or `MEMBER` with a member ID) and a short description. The table is append-only.
+
+| Action | When |
+|---|---|
+| `STAFF_CREATED`, `STAFF_PROFILE_UPDATED`, `STAFF_ROLES_CHANGED`, `STAFF_DEACTIVATED`, `STAFF_REACTIVATED` | Staff management. Profile updates list the changed field names, not the values; role changes show old and new roles. Requests that change nothing aren't logged |
+| `STAFF_PASSWORD_RESET` | A staff member completed a password reset (actor is that staff member) |
+| `MEMBER_REGISTERED`, `MEMBER_CONTACT_UPDATED` | Member registration; contact update (changed field names only) |
+| `KYC_SUBMITTED`, `KYC_RESUBMITTED` | Document upload; replacement after a rejection. The ID number isn't repeated |
+| `KYC_AUTO_VERIFIED`, `KYC_SENT_TO_MANUAL_REVIEW` | Automated check outcome (no actor). The manual-review reason stays on the KYC record because it quotes personal details |
+| `KYC_APPROVED`, `KYC_REJECTED` | Manual review by an administrator; rejections include the reason |
+| `KYC_DOCUMENT_VIEWED` | A staff member opened a member's ID document |
+
+Passwords, reset codes and document contents are never written to the log. There's no endpoint for reading the log yet.
+
 ## Database migrations
 
 Migrations are in `src/main/resources/db/migration` and are never edited once applied; every schema change gets the next version number.
@@ -136,6 +158,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V19 | Unique `member_kyc_records.member_id`: one KYC record per member. Stops with a clear message if existing data already has a member with two records |
 | V20 | `member.registered_by`: the staff member who registered each member (null for members registered earlier) |
 | V21 | `member_kyc_records.id_number`: the ID document number typed at upload, unique across members |
+| V22 | `audit_log`: business audit trail (who, what, which record, when). Append-only: triggers reject UPDATE, DELETE and TRUNCATE |
 
 ## Status
 
@@ -148,9 +171,10 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Member registration and async account creation | Implemented; member timestamps fixed in 0.1 |
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
 | Automated KYC verification | Works end to end (3.1): R2 download and Textract OCR run outside database transactions; first name, last name, date of birth and ID number must all be read with ≥ 85% confidence and all match (3.6) for automatic activation; anything missing, unclear or different goes to `MANUAL_REVIEW` with a reason listing each problem. Dates are compared only through the OCR provider's ISO-normalised value, never guessed from printed text. OCR confirms the text matches; it doesn't prove the document is genuine |
-| Manual KYC approval | Implemented (ADMINISTRATOR, AGENT) |
+| Manual KYC approval and rejection | Implemented (ADMINISTRATOR only) |
 | Endpoint role permissions | Implemented for all current endpoints (1.1) |
-| Transactions, ledger postings, shares, SMS on collection | Not implemented (Phases 4–5) |
+| Transaction groundwork | Implemented (5.1): account row locking (`PESSIMISTIC_WRITE`), idempotency keys, amount rules. No money-moving endpoint yet |
+| Deposits, withdrawals, transfers, ledger postings, shares, SMS on collection | Not implemented; waits on the approved chart of accounts and posting rules (D15, D30) |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
 ### Completed increments
@@ -176,3 +200,6 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **3.5 ID number capture:** the KYC upload form sends `idNumber`; it's stored on the KYC record (V21), replaced on re-upload, and unique across members (checked before upload and enforced in the database). Ghana Card (`ECOWAS_CARD`) numbers must match `GHA-#########-#` (`IdNumberRules`); the Voter card format is pending the owner's confirmation.
 - **3.6 Full field matching:** automatic KYC approval now needs first name, last name, date of birth and ID number all at ≥ 85% OCR confidence and all matching (decision D11); otherwise manual review with an itemised reason.
 - **3.7 Review list and document viewing:** ADMINISTRATOR and AGENT can list KYC records by status, open one, and view the document image streamed through the backend (decision D13); administrators see all members, agents only members they registered; approving/rejecting stays ADMINISTRATOR-only.
+- **5.1 Transaction groundwork (no endpoints yet):** `AccountLockService` locks member accounts with PostgreSQL row locks (`PESSIMISTIC_WRITE`, i.e. `SELECT … FOR UPDATE`; owner decision 2026-11-07), so money movements on the same account run one at a time. Only ACTIVE accounts of ACTIVE members can be locked (409 otherwise; unknown → 404). Transfers lock both accounts in ascending ID order to prevent deadlocks; same account twice → 400. `TransactionService` handles idempotency keys: the same key with the same type, account and amount returns the recorded transaction instead of applying it again; the same key with a different request → 409, as does a simultaneous duplicate caught by the unique key. `MoneyRules`: amounts must be positive, at most 4 decimal places and fit `DECIMAL(19,4)`. Whether amounts are limited to 2 decimal places (pesewas) is undecided. Recorded transactions are final, with no reversals (D16).
+- **8.1 Business audit log:** `audit_log` table (V22, append-only, checked on PostgreSQL 16) and `AuditLogService`, which joins the caller's transaction. Staff management, password resets, member registration and contact updates, and every KYC step (submit, re-upload, automated result, manual approval/rejection, document viewing) are recorded with who acted, on what, and when. Viewing a KYC document now runs in a read-write transaction so the view is recorded.
+- **9.x Actuator and API docs:** `spring-boot-starter-actuator` with only health and info exposed, both ADMINISTRATOR-only (owner decision 2026-11-07: no public actuator access); springdoc-openapi 3.2.0 (the line for Spring Boot 4.1) with the JWT bearer scheme documented, served only when `API_DOCS_ENABLED=true`.

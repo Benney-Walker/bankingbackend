@@ -36,6 +36,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,6 +53,9 @@ class KycServiceTest {
 
     @Mock
     private MemberRepository memberRepository;
+
+    @Mock
+    private AuditLogService auditLogService;
 
     @Mock
     private MemberKycRecordRepo kycRepository;
@@ -82,7 +87,7 @@ class KycServiceTest {
     @BeforeEach
     void setUp() {
         kycService = new KycService(memberRepository, kycRepository, storageService,
-                outboxService, memberAccountService);
+                outboxService, memberAccountService, auditLogService);
         // Stand-in for the request transaction, so after-commit callbacks can be registered.
         TransactionSynchronizationManager.initSynchronization();
     }
@@ -196,6 +201,8 @@ class KycServiceTest {
         verify(outboxService).enqueue(RabbitMQConfig.EXCHANGE_NAME, RabbitMQConfig.KYC_VERIFICATION_ROUTING_KEY,
                 KycVerificationEvent.builder().kycRecordId(recordId).build());
         assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        verify(auditLogService).recordAs("900106", AuditAction.KYC_SUBMITTED, AuditTargetType.MEMBER, memberId,
+                "Document type VOTER_CARD");
     }
 
     @Test
@@ -340,6 +347,8 @@ class KycServiceTest {
         kycService.completeAutomatedVerification(recordId, ocr(matchingOcr()));
 
         verify(memberAccountService).activateMemberAccounts(record.getMember(), record, VerificationMethod.AUTOMATED, null);
+        verify(auditLogService).recordSystem(AuditAction.KYC_AUTO_VERIFIED, AuditTargetType.MEMBER,
+                record.getMember().getId(), "Member and accounts activated");
     }
 
     @Test
@@ -362,6 +371,9 @@ class KycServiceTest {
         assertThat(record.getStatus()).isEqualTo(KycStatus.MANUAL_REVIEW);
         assertThat(record.getRejectionReason()).contains(reasonContains);
         verify(memberAccountService, never()).activateMemberAccounts(any(), any(), any(), any());
+        // The reason quotes personal details, so the audit entry only points to the record.
+        verify(auditLogService).recordSystem(AuditAction.KYC_SENT_TO_MANUAL_REVIEW, AuditTargetType.MEMBER,
+                record.getMember().getId(), "Reason recorded on the KYC record");
     }
 
     @Test
@@ -443,6 +455,8 @@ class KycServiceTest {
         kycService.approveKycInfoManually(memberId, admin);
 
         verify(memberAccountService).activateMemberAccounts(eq(member), eq(record), eq(VerificationMethod.MANUAL), eq(admin));
+        verify(auditLogService).recordAs("900100", AuditAction.KYC_APPROVED, AuditTargetType.MEMBER, memberId,
+                "Member and accounts activated");
     }
 
     @Test
@@ -474,5 +488,7 @@ class KycServiceTest {
         assertThat(record.getVerifiedAt()).isNull();
         verify(kycRepository).save(record);
         verifyNoInteractions(memberAccountService);
+        verify(auditLogService).recordAs("900100", AuditAction.KYC_REJECTED, AuditTargetType.MEMBER, memberId,
+                "Reason: Photo is blurry; date of birth unreadable");
     }
 }

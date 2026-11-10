@@ -29,6 +29,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.bynexlabs.bankingbackend.enums.AuditAction;
+import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +49,9 @@ class MemberManagementServiceTest {
     private MemberRepository memberRepository;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private OutboxService outboxService;
 
     @Mock
@@ -58,7 +63,7 @@ class MemberManagementServiceTest {
 
     @BeforeEach
     void setUp() {
-        memberService = new MemberService(memberRepository, outboxService, memberAccountRepo);
+        memberService = new MemberService(memberRepository, outboxService, memberAccountRepo, auditLogService);
     }
 
     private Member member() {
@@ -162,6 +167,9 @@ class MemberManagementServiceTest {
         assertThat(member.getFirstName()).isEqualTo("Ama");
         assertThat(member.getDateOfBirth()).isEqualTo(LocalDate.of(1990, 5, 14));
         assertThat(member.getMembershipStatus()).isEqualTo(MembershipStatus.ACTIVE);
+        // Field names only, never the new values.
+        verify(auditLogService).record(AuditAction.MEMBER_CONTACT_UPDATED, AuditTargetType.MEMBER, memberId,
+                "Changed: phoneNumber, residentialAddress, occupation");
     }
 
     @Test

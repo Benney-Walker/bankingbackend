@@ -1,6 +1,6 @@
 package com.bynexlabs.bankingbackend.controller;
 
-import com.bynexlabs.bankingbackend.Utility.GlobalExceptionHandler;
+import com.bynexlabs.bankingbackend.exception.GlobalExceptionHandler;
 import com.bynexlabs.bankingbackend.service.AuthService;
 import com.bynexlabs.bankingbackend.service.PasswordResetService;
 import org.junit.jupiter.api.BeforeEach;

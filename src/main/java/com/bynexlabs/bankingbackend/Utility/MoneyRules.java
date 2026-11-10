@@ -1,5 +1,7 @@
 package com.bynexlabs.bankingbackend.Utility;
 
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
+
 import java.math.BigDecimal;
 
 /**

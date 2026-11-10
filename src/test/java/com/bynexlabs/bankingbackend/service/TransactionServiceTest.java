@@ -1,8 +1,8 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.Repository.TransactionRepo;
-import com.bynexlabs.bankingbackend.Utility.BadRequestException;
-import com.bynexlabs.bankingbackend.Utility.ConflictException;
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
+import com.bynexlabs.bankingbackend.exception.ConflictException;
 import com.bynexlabs.bankingbackend.enums.TransactionStatus;
 import com.bynexlabs.bankingbackend.enums.TransactionType;
 import com.bynexlabs.bankingbackend.models.MemberAccount;

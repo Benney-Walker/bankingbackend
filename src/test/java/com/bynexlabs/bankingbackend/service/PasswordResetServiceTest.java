@@ -3,7 +3,7 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
-import com.bynexlabs.bankingbackend.Utility.BadRequestException;
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
 import com.bynexlabs.bankingbackend.models.PasswordResetCode;

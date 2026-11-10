@@ -1,6 +1,7 @@
 package com.bynexlabs.bankingbackend.Utility;
 
 import com.bynexlabs.bankingbackend.enums.KycDocumentType;
+import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;

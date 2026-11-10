@@ -2,7 +2,7 @@ package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
-import com.bynexlabs.bankingbackend.Utility.UnauthorizedException;
+import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import org.junit.jupiter.api.Test;

@@ -30,9 +30,20 @@ public class JwtUtility {
     private static final String TYPE_CLAIM = "type";
     private static final String ACCESS = "access";
     private static final String REFRESH = "refresh";
+    private static final String RESET = "reset";
 
     private Key signingKey() {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes());
+    }
+
+    public String generateResetToken(String username) {
+        return Jwts.builder()
+                .setSubject(username)
+                .claim(TYPE_CLAIM, RESET)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + resetExpirationInMs))
+                .signWith(signingKey(), SignatureAlgorithm.HS256)
+                .compact();
     }
 
     public String generateAccessToken(String username, List<String> roles) {

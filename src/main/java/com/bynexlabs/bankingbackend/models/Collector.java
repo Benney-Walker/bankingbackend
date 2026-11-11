@@ -23,7 +23,7 @@ public class Collector {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "staff_id", length = 50, nullable = false, unique = true)
+    @Column(name = "collector_id", length = 50, nullable = false, unique = true)
     private String collectorId;
 
     @Column(name = "first_name", length = 100, nullable = false)

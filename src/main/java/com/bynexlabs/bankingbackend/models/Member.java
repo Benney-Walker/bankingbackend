@@ -61,6 +61,10 @@ public class Member {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "branch", updatable = false, nullable = false)
+    private Branch branch;
+
     @PrePersist
     void onCreate() {
         LocalDateTime now = LocalDateTime.now();

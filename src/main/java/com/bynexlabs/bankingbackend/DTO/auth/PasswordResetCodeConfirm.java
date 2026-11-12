@@ -2,7 +2,6 @@ package com.bynexlabs.bankingbackend.DTO.auth;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class PasswordResetConfirmRequest {
+public class PasswordResetCodeConfirm {
 
     @NotBlank(message = "Staff ID is required")
     private String staffId;

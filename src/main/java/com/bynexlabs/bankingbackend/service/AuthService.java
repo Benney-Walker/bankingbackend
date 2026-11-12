@@ -59,7 +59,7 @@ public class AuthService {
         );
     }
 
-    public ResponseEntity<?> refreshAccessToken(RefreshRequest refreshRequest) {
+    public String refreshAccessToken(RefreshRequest refreshRequest) {
         String refreshToken = refreshRequest.getRefreshToken();
 
         if (!jwtUtility.isRefreshToken(refreshToken)) {
@@ -77,10 +77,6 @@ public class AuthService {
                 .map(role -> role.getRole().name())
                 .toList();
 
-        String newAccessToken = jwtUtility.generateAccessToken(staffId, rolesList);
-
-        return ResponseEntity.ok(Map.of(
-                "authToken", newAccessToken
-        ));
+        return jwtUtility.generateAccessToken(staffId, rolesList);
     }
 }

@@ -31,46 +31,39 @@ public class StaffController {
 
     private final AuthenticatedStaffProvider staffProvider;
 
-    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @GetMapping("/v1/all-staff")
     public PagedModel<StaffResponse> listStaff(@RequestParam(defaultValue = "0") int page,
                                                @RequestParam(defaultValue = "20") int size) {
         return staffService.listStaff(page, size);
     }
 
-    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @GetMapping("/v1/staff-details/{staffId}")
     public StaffResponse getStaff(@PathVariable String staffId) {
         return staffService.getStaff(staffId);
     }
 
-    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @PutMapping("/v1/update-staff/{staffId}")
     public StaffResponse updateStaff(@PathVariable String staffId,
                                      @Valid @RequestBody StaffUpdateRequest request) {
         return staffService.updateStaffProfile(staffId, request);
     }
 
-    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @PutMapping("/v1/update-roles/{staffId}")
     public StaffResponse updateRoles(@PathVariable String staffId,
                                      @Valid @RequestBody StaffRolesRequest request) {
         return staffService.updateStaffRoles(staffId, request, staffProvider.getStaffId());
     }
 
-    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @PostMapping("/v1/deactivate/{staffId}")
     public StaffResponse deactivateStaff(@PathVariable String staffId) {
         return staffService.deactivateStaff(staffId, staffProvider.getStaffId());
     }
 
-    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @PostMapping("/v1/reactivate/{staffId}")
     public StaffResponse reactivateStaff(@PathVariable String staffId) {
         return staffService.reactivateStaff(staffId);
     }
 
-    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
     @PostMapping("/v1/add-staff")
     public ResponseEntity<?> addNewStaff(@Valid @RequestBody StaffDetails staffDetails) {
         return staffService.addNewStaff(staffDetails);

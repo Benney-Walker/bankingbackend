@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffResponse;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffRolesRequest;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffUpdateRequest;
+import com.bynexlabs.bankingbackend.Repository.BranchRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
@@ -16,6 +17,7 @@ import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
+import com.bynexlabs.bankingbackend.models.Branch;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.models.StaffRoles;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +54,8 @@ public class StaffService {
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
 
     private final AuditLogService auditLogService;
+
+    private final BranchRepo branchRepo;
 
     // Upper bound on the staff list page size, so one request can't pull the whole table.
     static final int MAX_PAGE_SIZE = 100;
@@ -238,11 +242,8 @@ public class StaffService {
         validatePhoneNumber(staffDetails.getPhoneNumber());
         List<Roles> roles = parseRoles(staffDetails.getRoles());
 
-        if (
-                staffRepo.existsByFirstNameAndLastNameAndDateOfBirth(
-                        staffDetails.getFirstName(), staffDetails.getLastName(), dob
-                )
-        ) {
+        if (staffRepo.existsByFirstNameAndLastNameAndDateOfBirth(
+                        staffDetails.getFirstName(), staffDetails.getLastName(), dob)) {
             throw new ConflictException("Staff already exist");
         }
 
@@ -253,6 +254,9 @@ public class StaffService {
         if (staffRepo.existsByEmail(staffDetails.getEmail())) {
             throw new ConflictException("Email already exist");
         }
+
+        Branch branch = branchRepo.findById(staffDetails.getBranchId())
+                .orElseThrow(()-> new ConflictException("Branch not found"));
 
         String newStaffId = idGenerator.generateId(Id_Type.STAFF_ID);
         String hashedPassword = bCryptPasswordEncoder.encode(staffDetails.getPassword());
@@ -269,7 +273,9 @@ public class StaffService {
                 .residentialAddress(staffDetails.getResidentialAddress())
                 .staffStatus(StaffStatus.ACTIVE)
                 .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now()).build();
+                .updatedAt(LocalDateTime.now())
+                .branch(branch)
+                .build();
         staffRepo.save(staff);
 
         saveStaffRoles(staff, roles);

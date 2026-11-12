@@ -1,6 +1,7 @@
 package com.bynexlabs.bankingbackend.Utility;
 
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
+import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,13 @@ public class AuthenticatedStaffProvider {
             return null;
         }
         return authentication.getName();
+    }
+
+    /** Whether the current staff member holds the role (authorities come from the database, D32). */
+    public boolean hasRole(Roles role) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(authority -> role.name().equals(authority.getAuthority()));
     }
 
     public Staff getStaff() {

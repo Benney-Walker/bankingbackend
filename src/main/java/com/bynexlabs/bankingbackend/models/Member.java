@@ -50,11 +50,20 @@ public class Member {
     @Column(name = "membership_status", length = 20)
     private MembershipStatus membershipStatus;
 
+    // The staff member who registered this member (V20). Null for members registered earlier.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "registered_by", updatable = false)
+    private Staff registeredBy;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "branch", updatable = false, nullable = false)
+    private Branch branch;
 
     @PrePersist
     void onCreate() {

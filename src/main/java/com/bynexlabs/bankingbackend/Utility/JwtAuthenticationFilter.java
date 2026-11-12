@@ -4,7 +4,11 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.bynexlabs.bankingbackend.Repository.StaffRepo;
+import com.bynexlabs.bankingbackend.enums.StaffStatus;
+import com.bynexlabs.bankingbackend.models.Staff;
+import com.bynexlabs.bankingbackend.models.StaffRoles;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -17,10 +21,12 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Component
+@RequiredArgsConstructor
 public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
-    @Autowired
-    private JwtUtility jwtUtility;
+    private final JwtUtility jwtUtility;
+
+    private final StaffRepo staffRepo;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -45,20 +51,30 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
         try {
             String username = jwtUtility.extractUsername(token);
-            List<String> roles = jwtUtility.extractRoles(token);
 
-            List<GrantedAuthority> authorities = (roles == null ? List.<String>of() : roles).stream()
-                    .map(SimpleGrantedAuthority::new)
-                    .collect(Collectors.toUnmodifiableList());
+            // Access tokens stay valid until they expire, so status and roles are read from the
+            // database on every request rather than trusted from the token. Deactivation and role
+            // changes therefore apply immediately (owner decision D32); unknown or inactive staff
+            // are left unauthenticated (401). The token's roles claim is informational only.
+            Staff staff = staffRepo.findWithRolesByStaffId(username)
+                    .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
+                    .orElse(null);
 
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                            username,
-                            null,
-                            authorities
-                    );
+            if (staff != null) {
+                List<GrantedAuthority> authorities = (staff.getRoles() == null ? List.<StaffRoles>of() : staff.getRoles())
+                        .stream()
+                        .map(role -> new SimpleGrantedAuthority(role.getRole().name()))
+                        .collect(Collectors.toUnmodifiableList());
 
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                username,
+                                null,
+                                authorities
+                        );
+
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
         } catch (Exception e) {
             // Defensive: never let token parsing bubble up as a 500.
             SecurityContextHolder.clearContext();

@@ -4,11 +4,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
 
+@Slf4j
 @Component
 public class CustomAuthEntryPoint implements AuthenticationEntryPoint {
 
@@ -32,8 +34,8 @@ public class CustomAuthEntryPoint implements AuthenticationEntryPoint {
                 request.getRequestURI()
         );
 
-        //log.warn("Unauthorized request to {} {}: {}",
-        //        request.getMethod(), request.getRequestURI(), authException.getMessage());
+        log.warn("Unauthorized request to {} {}: {}",
+                request.getMethod(), request.getRequestURI(), authException.getMessage());
 
         response.getWriter().write(json);
     }

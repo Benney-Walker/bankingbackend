@@ -24,12 +24,26 @@ public class JwtUtility {
     @Value("${jwt.refresh-expiration}")
     private long refreshExpirationInMs;
 
+    @Value("${jwt.reset-expiration}")
+    private long resetExpirationInMs;
+
     private static final String TYPE_CLAIM = "type";
     private static final String ACCESS = "access";
     private static final String REFRESH = "refresh";
+    private static final String RESET = "reset";
 
     private Key signingKey() {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes());
+    }
+
+    public String generateResetToken(String username) {
+        return Jwts.builder()
+                .setSubject(username)
+                .claim(TYPE_CLAIM, RESET)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + resetExpirationInMs))
+                .signWith(signingKey(), SignatureAlgorithm.HS256)
+                .compact();
     }
 
     public String generateAccessToken(String username, List<String> roles) {
@@ -78,6 +92,9 @@ public class JwtUtility {
     }
     public boolean isRefreshToken(String token) {
         return validateToken(token) && REFRESH.equals(extractType(token));
+    }
+    public boolean isResetToken(String token) {
+        return validateToken(token) && RESET.equals(extractType(token));
     }
 
     public Claims extractAllClaims(String token) {

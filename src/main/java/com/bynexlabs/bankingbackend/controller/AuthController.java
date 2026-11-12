@@ -1,7 +1,7 @@
 package com.bynexlabs.bankingbackend.controller;
 
 import com.bynexlabs.bankingbackend.DTO.auth.LoginRequest;
-import com.bynexlabs.bankingbackend.DTO.auth.PasswordResetConfirmRequest;
+import com.bynexlabs.bankingbackend.DTO.auth.PasswordResetCodeConfirm;
 import com.bynexlabs.bankingbackend.DTO.auth.PasswordResetRequest;
 import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
 import com.bynexlabs.bankingbackend.service.AuthService;
@@ -28,7 +28,7 @@ public class AuthController {
     }
     @PostMapping("/v1/refresh-token")
     public ResponseEntity<?> refreshToken(@Valid @RequestBody RefreshRequest refreshRequest) {
-        return authService.refreshAccessToken(refreshRequest);
+        return ResponseEntity.ok(authService.refreshAccessToken(refreshRequest));
     }
 
     @PostMapping("/v1/password-reset/request-code")
@@ -40,8 +40,8 @@ public class AuthController {
     }
 
     @PostMapping("/v1/password-reset/confirm-code")
-    public ResponseEntity<?> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
+    public ResponseEntity<?> confirmPasswordReset(@Valid @RequestBody PasswordResetCodeConfirm request) {
 
-        return passwordResetService.confirmResetCode(request.getStaffId(), request.getCode());
+        return ResponseEntity.ok(passwordResetService.confirmResetCode(request.getStaffId(), request.getCode()));
     }
 }

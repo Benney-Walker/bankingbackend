@@ -16,8 +16,6 @@ import java.util.List;
 @NoArgsConstructor
 public class StaffDetails {
 
-    private String staffId;
-
     @NotBlank(message = "First name cannot be empty")
     private String firstName;
 

@@ -44,4 +44,7 @@ public class StaffDetails {
 
     @NotEmpty(message = "At least one role must be selected")
     private List<String> roles;
+
+    @NotBlank(message = "Branch can't be empty")
+    private String branchId;
 }

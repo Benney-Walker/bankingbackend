@@ -62,4 +62,8 @@ public class Collector {
 
     @OneToMany(mappedBy = "staff")
     private List<StaffRoles> roles;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "branch", nullable = false, updatable = false)
+    private Branch branch;
 }

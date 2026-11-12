@@ -84,7 +84,7 @@ public class PasswordResetService {
 
 
     @Transactional(noRollbackFor = BadRequestException.class)
-    public ResponseEntity<?> confirmResetCode(String staffId, String code) {
+    public String confirmResetCode(String staffId, String code) {
         Staff staff = staffRepo.findByStaffId(staffId)
                 .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
                 .orElseThrow(() -> new BadRequestException(INVALID_CODE_MESSAGE));
@@ -110,10 +110,7 @@ public class PasswordResetService {
         resetCodeRepo.delete(resetCode);
 
        // Generate short lived reset token
-        String resetToken = jwtUtility.generateResetToken(staffId);
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
-                "message", resetToken
-        ));
+        return jwtUtility.generateResetToken(staffId);
     }
 
     // Wording approved by the owner (2026-11-07).

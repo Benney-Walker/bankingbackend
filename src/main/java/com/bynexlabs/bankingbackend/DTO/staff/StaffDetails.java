@@ -9,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.UUID;
 
 @Data
 @Builder
@@ -46,5 +47,5 @@ public class StaffDetails {
     private List<String> roles;
 
     @NotBlank(message = "Branch can't be empty")
-    private String branchId;
+    private UUID branchId;
 }

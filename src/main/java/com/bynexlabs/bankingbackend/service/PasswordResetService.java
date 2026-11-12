@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.DTO.auth.NewPassword;
 import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
@@ -8,6 +9,7 @@ import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
 import com.bynexlabs.bankingbackend.exception.InternalServerError;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
+import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
 import com.bynexlabs.bankingbackend.models.PasswordResetCode;
 import com.bynexlabs.bankingbackend.models.Staff;
@@ -46,6 +48,8 @@ public class PasswordResetService {
     private final SmsInterface smsService;
 
     private final JwtUtility jwtUtility;
+
+    private StaffService staffService;
 
     public void requestResetCode(String staffId) {
         Staff staff = staffRepo.findByStaffId(staffId)
@@ -111,6 +115,30 @@ public class PasswordResetService {
 
        // Generate short lived reset token
         return jwtUtility.generateResetToken(staffId);
+    }
+
+    public void saveNewPassword(NewPassword newPassword) {
+        String resetToken = newPassword.getResetToken();
+
+        if (!jwtUtility.isResetToken(resetToken)) {
+            throw new UnauthorizedException("Invalid reset token");
+        }
+
+        String staffId = jwtUtility.extractUsername(resetToken);
+        Staff staff = staffService.getStaffDetails(staffId);
+
+        if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {
+            throw new UnauthorizedException("Invalid or expired refresh token");
+        }
+
+        if (passwordEncoder.matches(newPassword.getNewPassword(), staff.getPassword())) {
+            throw new ConflictException("Password has already been used before");
+        }
+
+        String hashedPassword = passwordEncoder.encode(newPassword.getNewPassword());
+        staff.setPassword(hashedPassword);
+        staff.setUpdatedAt(LocalDateTime.now());
+        staffRepo.save(staff);
     }
 
     // Wording approved by the owner (2026-11-07).

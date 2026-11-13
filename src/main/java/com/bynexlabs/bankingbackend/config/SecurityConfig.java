@@ -81,8 +81,8 @@ public class SecurityConfig {
                         // (owner decision 2026-11-07). Keep in step with management.endpoints.web.base-path.
                         .requestMatchers("/actuator/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/admin/**").hasAuthority(Roles.ADMINISTRATOR.name())
-                        .requestMatchers("/api/member/**").hasAllAuthorities(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
-                        .requestMatchers("/api/staff/**").hasAllAuthorities(Roles.AGENT.name(), Roles.ADMINISTRATOR.name())
+                        .requestMatchers("/api/member/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
+                        .requestMatchers("/api/staff/**").hasAnyAuthority(Roles.AGENT.name(), Roles.ADMINISTRATOR.name())
                         .anyRequest().authenticated()
                 ).sessionManagement( session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)

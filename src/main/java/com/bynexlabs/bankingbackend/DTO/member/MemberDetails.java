@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.UUID;
+
 @Data
 @Builder
 @AllArgsConstructor
@@ -35,4 +37,7 @@ public class MemberDetails {
 
     @NotBlank(message = "Account type can't be empty")
     private String accountType;
+
+    @NotBlank(message = "Branch Id can't be empty")
+    private UUID branchId;
 }

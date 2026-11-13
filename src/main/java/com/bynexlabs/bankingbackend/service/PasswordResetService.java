@@ -49,7 +49,7 @@ public class PasswordResetService {
 
     private final JwtUtility jwtUtility;
 
-    private StaffService staffService;
+    private final StaffService staffService;
 
     public void requestResetCode(String staffId) {
         Staff staff = staffRepo.findByStaffId(staffId)

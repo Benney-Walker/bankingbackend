@@ -1,2 +1,2 @@
 ALTER TABLE password_reset_codes
-ADD COLUMN is_sent ;
+ADD COLUMN is_sent BOOLEAN DEFAULT FALSE NOT NULL;

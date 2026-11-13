@@ -64,9 +64,11 @@ class PasswordResetServiceTest {
 
     private JwtUtility jwtUtility;
 
+    private StaffService staffService;
+
     @BeforeEach
     void setUp() {
-        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService, jwtUtility);
+        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService, jwtUtility, staffService);
         staff = Staff.builder()
                 .id(UUID.randomUUID())
                 .staffId(STAFF_ID)

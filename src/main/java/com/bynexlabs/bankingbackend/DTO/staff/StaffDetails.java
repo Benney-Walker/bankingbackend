@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.DTO.staff;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -46,6 +47,6 @@ public class StaffDetails {
     @NotEmpty(message = "At least one role must be selected")
     private List<String> roles;
 
-    @NotBlank(message = "Branch can't be empty")
+    @NotNull(message = "Branch can't be empty")
     private UUID branchId;
 }

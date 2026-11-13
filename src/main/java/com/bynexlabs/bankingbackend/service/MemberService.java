@@ -104,19 +104,6 @@ public class MemberService {
         ));
     }
 
-    /** Search by name, phone or account number; a blank query lists all members. */
-    @Transactional(readOnly = true)
-    public PagedModel<MemberSummaryResponse> searchMembers(String query, int page, int size) {
-        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
-            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
-        }
-        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("lastName", "firstName"));
-        Page<Member> members = (query == null || query.isBlank())
-                ? memberRepository.findAll(pageRequest)
-                : memberRepository.search(query.trim(), pageRequest);
-        return new PagedModel<>(members.map(MemberSummaryResponse::from));
-    }
-
     @Transactional(readOnly = true)
     public MemberProfileResponse getMemberProfile(UUID memberId) {
         Member member = findMemberOrThrow(memberId);

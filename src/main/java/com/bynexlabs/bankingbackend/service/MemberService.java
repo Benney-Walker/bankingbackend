@@ -17,6 +17,7 @@ import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.AuditAction;
 import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
+import com.bynexlabs.bankingbackend.models.Branch;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
@@ -50,6 +51,8 @@ public class MemberService {
 
     private final AuditLogService auditLogService;
 
+    private final BranchService branchService;
+
     // Upper bound on the search page size, so one request can't pull the whole table.
     static final int MAX_PAGE_SIZE = 100;
 
@@ -62,6 +65,9 @@ public class MemberService {
         if (registeredBy == null) {
             throw new UnauthorizedException("Staff account not found or inactive");
         }
+
+        Branch branch = branchService.getBranchDetails(request.getBranchId());
+
         // Validate the input before touching the database.
         AccountType accountType = parseSelectedAccountType(request.getAccountType());
         LocalDate dob = parseDateOfBirth(request.getDob());
@@ -76,6 +82,7 @@ public class MemberService {
         member.setMiddleName(request.getMiddleName());
         member.setLastName(request.getLastName());
         member.setDateOfBirth(dob);
+        member.setBranch(branch);
         member.setPhoneNumber(request.getPhoneNumber());
         member.setResidentialAddress(request.getResidentialAddress());
         member.setOccupation(request.getOccupation());
@@ -110,10 +117,6 @@ public class MemberService {
         return MemberProfileResponse.from(member, memberAccountRepo.findByMember_Id(memberId));
     }
 
-    /**
-     * Owner rule (2026-11-07): after registration only the phone number, residential address and
-     * occupation can change. Everything else, including names and date of birth, is locked.
-     */
     @Transactional
     public MemberProfileResponse updateMemberContact(UUID memberId, MemberUpdateRequest request) {
         Member member = findMemberOrThrow(memberId);

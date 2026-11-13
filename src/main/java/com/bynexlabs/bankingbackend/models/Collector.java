@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.models;
 
+import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -60,8 +61,8 @@ public class Collector {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "staff")
-    private List<StaffRoles> roles;
+    @Enumerated(EnumType.STRING)
+    private Roles role;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "branch", nullable = false, updatable = false)

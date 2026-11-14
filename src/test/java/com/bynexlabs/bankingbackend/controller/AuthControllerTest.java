@@ -48,7 +48,7 @@ class AuthControllerTest {
     @Test
     void refreshIsAPostWithTheTokenInTheBody() throws Exception {
         doReturn(ResponseEntity.ok(Map.of("authToken", "new-access-token")))
-                .when(authService).refreshAccessToken(any());
+                .when(authService).refreshStaffAccessToken(any());
 
         mockMvc.perform(post(REFRESH_URL)
                         .contentType(MediaType.APPLICATION_JSON)

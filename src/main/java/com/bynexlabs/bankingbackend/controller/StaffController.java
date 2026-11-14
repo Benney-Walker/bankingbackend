@@ -32,9 +32,8 @@ public class StaffController {
     private final AuthenticatedStaffProvider staffProvider;
 
     @GetMapping("/v1/all-staff")
-    public PagedModel<StaffResponse> listStaff(@RequestParam(defaultValue = "0") int page,
-                                               @RequestParam(defaultValue = "20") int size) {
-        return staffService.listStaff(page, size);
+    public ResponseEntity<?> listStaff() {
+        return ResponseEntity.ok(staffService.listStaff(staffProvider.getStaff()));
     }
 
     @GetMapping("/v1/staff-details/{staffId}")

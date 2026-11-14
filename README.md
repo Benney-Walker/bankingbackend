@@ -70,8 +70,10 @@ Access is set by URL in `SecurityConfig`:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/auth/v1/login` | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
-| POST | `/api/auth/v1/refresh-token` | Body `{ "refreshToken" }`; returns the new access token as a plain string |
+| POST | `/api/auth/v1/staff-login` | Staff login with `staffId` and `password`; returns `staffName`, `roles`, `authToken` and `refreshToken` |
+| POST | `/api/auth/v1/collector-login` | Collector login (mobile app): the collector ID goes in `staffId`, plus `password`; same response shape, with the collector's single role. See "Collectors" |
+| POST | `/api/auth/v1/refresh-staff-token` | Body `{ "refreshToken" }`; returns a new staff access token as a plain string. Inactive or unknown staff → 401 |
+| POST | `/api/auth/v1/refresh-collector-token` | Body `{ "refreshToken" }`; returns a new collector access token as a plain string. Inactive collector → 401 |
 | POST | `/api/auth/v1/password-reset/request-code` | Body `{ "staffId" }`. Texts a 6-digit code (Vynfy) to an ACTIVE staff member. Unknown or inactive staff ID → 400; again within a minute → 409; SMS failure → 500 |
 | POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
 | PUT | `/api/auth/v1/password-reset/new-password` | Body `{ "newPassword", "resetToken" }`. Password 8–72 characters, can't be the current one (409). Invalid reset token → 401 |
@@ -142,6 +144,19 @@ Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundExce
 
 - **Actuator:** only `/actuator/health` and `/actuator/info` are exposed, and both need an ADMINISTRATOR access token (401 without a token, 403 for other roles). Health details (database, RabbitMQ, disk) are shown to that administrator. Every other actuator endpoint (env, beans, configprops, heapdump, …) is off.
 - **API docs:** set `API_DOCS_ENABLED=true` to serve the OpenAPI description at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`. Off by default. When on, these pages are public, so keep it off in production. In Swagger UI, use **Authorize** with an access token from login to try endpoints.
+
+## Collectors
+
+Collectors (the mobile app's users) have their own table and entity, `collector` (V26, V27, V29, V30), separate from `staffs`: collector ID, names, date of birth, phone, email, address, status, branch, a hashed `password` and a single `role`. Their login and token refresh have their own endpoints (`/api/auth/v1/collector-login`, `/api/auth/v1/refresh-collector-token`); `CollectorService.getCollector` looks a collector up by collector ID.
+
+**Not working yet (as of master `5837a4f`):**
+- **Login can't succeed for a collector:** `collector-login` checks the password through the `AuthenticationManager`, whose only `UserDetailsService` (`CustomUserDetailsService`) reads the `staffs` table. A collector ID that isn't also a staff ID fails as a wrong password (401).
+- **Collector tokens don't authenticate API calls:** `JwtAuthenticationFilter` resolves every access token through `StaffService.getStaffRoles`, which only knows staff, so a collector's requests are treated as unauthenticated (401).
+- **Tokens don't say whether they belong to staff or a collector.** If a collector ID ever equals a staff ID, either refresh endpoint would accept the other's refresh token.
+- **No way to create collectors** through the API yet (no endpoint, and no collector ID type in `IdGenerator`).
+- A refresh for an unknown collector ID returns 409 (`Collector account not found`) instead of 401.
+
+Collector money recording is the next increment and depends on these.
 
 ## Financial settings
 
@@ -266,6 +281,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 | General ledger | Working chart of accounts, posting rules as data, balanced and immutable journal lines, trial balance |
 | Endpoint role permissions | URL rules in `SecurityConfig` (see API) |
 | Transaction SMS | Every office transaction texts the member (outbox + `transaction_sms_queue`, retries, dead-letter queue) |
+| Collector login and refresh | Endpoints exist; not usable end to end yet (see "Collectors") |
 | Collector recording, loans | Not implemented |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
@@ -297,3 +313,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **9.x Actuator and API docs:** `spring-boot-starter-actuator` with only health and info exposed, both ADMINISTRATOR-only (owner decision 2026-11-07: no public actuator access); springdoc-openapi 3.2.0 (the line for Spring Boot 4.1) with the JWT bearer scheme documented, served only when `API_DOCS_ENABLED=true`.
 - **Financial settings and the ledger/transaction engine (PR #14):** editable `financial_settings` with mock values (V31, V32); working chart of accounts (V33) and posting rules as data (V34); `PostingService` builds balanced journal lines from the rules; deposits with the first-deposit share split, share purchases, withdrawals (fee on top, rounded to 2 decimals for percentages, minimum balance, daily limit) and transfers between savings/current accounts of the same or different members, at `/api/transaction` for ADMINISTRATOR and AGENT; account balance and history reads; trial balance at `/api/admin/ledger`. Journal lines and transactions are protected by triggers (V35).
 - **Transaction SMS (PR #14):** every transaction queues a member SMS with the new balance through the outbox; `TransactionSmsSender` sends it after commit with retries and a dead-letter queue (`transaction_sms_queue`, `transaction_sms_dead_letter_queue`).
+- **Collector auth (owner, master `5837a4f`, documented 2026-11-14):** separate `collector-login` and `refresh-collector-token` endpoints; staff endpoints renamed to `staff-login` and `refresh-staff-token`. Gaps listed under "Collectors".

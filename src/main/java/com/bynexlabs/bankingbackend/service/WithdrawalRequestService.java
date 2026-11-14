@@ -45,6 +45,9 @@ import java.util.UUID;
  * agent approves or rejects it (reason required), and the member collects the cash at the
  * office: paying the request records a normal withdrawal, with the fee, minimum balance and
  * daily limit checked at that moment and the member texted.
+ *
+ * Agents only see, review and pay requests for members of their own branch; administrators
+ * act on every branch (owner decision 2026-11-14).
  */
 @Service
 @RequiredArgsConstructor
@@ -152,15 +155,25 @@ public class WithdrawalRequestService {
 
     // ------------------------------------------------------------------ office
 
+    /** Administrators see every branch's requests; agents only their own branch's. */
     @Transactional(readOnly = true)
-    public PagedModel<WithdrawalRequestResponse> list(WithdrawalRequestStatus status, int page, int size) {
-        return new PagedModel<>(requestRepo.findByStatus(status == null ? WithdrawalRequestStatus.PENDING : status,
-                pageRequest(page, size)).map(this::response));
+    public PagedModel<WithdrawalRequestResponse> list(WithdrawalRequestStatus status, int page, int size,
+                                                      Staff reviewer, boolean reviewerIsAdmin) {
+        WithdrawalRequestStatus wanted = status == null ? WithdrawalRequestStatus.PENDING : status;
+        PageRequest pageRequest = pageRequest(page, size);
+        if (reviewerIsAdmin) {
+            return new PagedModel<>(requestRepo.findByStatus(wanted, pageRequest).map(this::response));
+        }
+        if (reviewer.getBranch() == null) {
+            throw new ForbiddenException("You are not assigned to a branch");
+        }
+        return new PagedModel<>(requestRepo.findByStatusAndMemberAccount_Member_Branch_Id(
+                wanted, reviewer.getBranch().getId(), pageRequest).map(this::response));
     }
 
     @Transactional
-    public WithdrawalRequestResponse approve(UUID requestId, Staff reviewer) {
-        WithdrawalRequest withdrawal = lockForReview(requestId);
+    public WithdrawalRequestResponse approve(UUID requestId, Staff reviewer, boolean reviewerIsAdmin) {
+        WithdrawalRequest withdrawal = lockForReview(requestId, reviewer, reviewerIsAdmin);
         withdrawal.setStatus(WithdrawalRequestStatus.APPROVED);
         withdrawal.setReviewedBy(reviewer);
         withdrawal.setReviewedAt(LocalDateTime.now(clock));
@@ -168,11 +181,11 @@ public class WithdrawalRequestService {
     }
 
     @Transactional
-    public WithdrawalRequestResponse reject(UUID requestId, String reason, Staff reviewer) {
+    public WithdrawalRequestResponse reject(UUID requestId, String reason, Staff reviewer, boolean reviewerIsAdmin) {
         if (reason == null || reason.isBlank()) {
             throw new BadRequestException("A reason is required");
         }
-        WithdrawalRequest withdrawal = lockForReview(requestId);
+        WithdrawalRequest withdrawal = lockForReview(requestId, reviewer, reviewerIsAdmin);
         withdrawal.setStatus(WithdrawalRequestStatus.REJECTED);
         withdrawal.setRejectionReason(reason.trim());
         withdrawal.setReviewedBy(reviewer);
@@ -186,8 +199,9 @@ public class WithdrawalRequestService {
      * request PAID. If the withdrawal is refused (balance, daily limit), the request stays APPROVED.
      */
     @Transactional
-    public WithdrawalRequestResponse pay(UUID requestId, String idempotencyKey, Staff cashier) {
+    public WithdrawalRequestResponse pay(UUID requestId, String idempotencyKey, Staff cashier, boolean cashierIsAdmin) {
         WithdrawalRequest withdrawal = lock(requestId);
+        requireReviewerBranch(withdrawal, cashier, cashierIsAdmin);
         if (withdrawal.getStatus() == WithdrawalRequestStatus.PAID) {
             // A retried payment with the same key returns the request; anything else is a mistake.
             if (withdrawal.getTransaction().getIdempotencyKey().equals(idempotencyKey)) {
@@ -214,8 +228,9 @@ public class WithdrawalRequestService {
     // ------------------------------------------------------------------ helpers
 
     /** A request can be reviewed once it's final: its correction window has passed. */
-    private WithdrawalRequest lockForReview(UUID requestId) {
+    private WithdrawalRequest lockForReview(UUID requestId, Staff reviewer, boolean reviewerIsAdmin) {
         WithdrawalRequest withdrawal = lock(requestId);
+        requireReviewerBranch(withdrawal, reviewer, reviewerIsAdmin);
         if (withdrawal.getStatus() != WithdrawalRequestStatus.PENDING) {
             throw new ConflictException("This request is already " + withdrawal.getStatus());
         }
@@ -224,6 +239,17 @@ public class WithdrawalRequestService {
             throw new ConflictException("The collector can still correct this request until " + until.toLocalTime().withNano(0));
         }
         return withdrawal;
+    }
+
+    // Owner decision 2026-11-14: agents act only on their own branch's requests.
+    private static void requireReviewerBranch(WithdrawalRequest withdrawal, Staff reviewer, boolean reviewerIsAdmin) {
+        if (reviewerIsAdmin) {
+            return;
+        }
+        if (reviewer.getBranch() == null
+                || !reviewer.getBranch().getId().equals(withdrawal.getMemberAccount().getMember().getBranch().getId())) {
+            throw new ForbiddenException("This request is from another branch");
+        }
     }
 
     private WithdrawalRequest lock(UUID requestId) {

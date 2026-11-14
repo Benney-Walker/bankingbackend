@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.DTO.collector.PayWithdrawalRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.RejectWithdrawalRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.WithdrawalRequestResponse;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
+import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.WithdrawalRequestStatus;
 import com.bynexlabs.bankingbackend.service.WithdrawalRequestService;
 import jakarta.validation.Valid;
@@ -21,7 +22,8 @@ import java.util.UUID;
 
 /**
  * Office side of collector withdrawal requests: review, then pay when the member comes in.
- * Under /api/transaction, so ADMINISTRATOR and AGENT (SecurityConfig).
+ * Under /api/transaction, so ADMINISTRATOR and AGENT (SecurityConfig); agents only for their
+ * own branch's requests.
  */
 @RequiredArgsConstructor
 @RestController
@@ -36,21 +38,28 @@ public class WithdrawalRequestController {
     public PagedModel<WithdrawalRequestResponse> list(@RequestParam(defaultValue = "PENDING") WithdrawalRequestStatus status,
                                                       @RequestParam(defaultValue = "0") int page,
                                                       @RequestParam(defaultValue = "20") int size) {
-        return withdrawalRequestService.list(status, page, size);
+        return withdrawalRequestService.list(status, page, size, staffProvider.getStaff(), isAdministrator());
     }
 
     @PostMapping("/{requestId}/approve")
     public WithdrawalRequestResponse approve(@PathVariable UUID requestId) {
-        return withdrawalRequestService.approve(requestId, staffProvider.getStaff());
+        return withdrawalRequestService.approve(requestId, staffProvider.getStaff(), isAdministrator());
     }
 
     @PostMapping("/{requestId}/reject")
     public WithdrawalRequestResponse reject(@PathVariable UUID requestId, @Valid @RequestBody RejectWithdrawalRequest request) {
-        return withdrawalRequestService.reject(requestId, request.getReason(), staffProvider.getStaff());
+        return withdrawalRequestService.reject(requestId, request.getReason(), staffProvider.getStaff(),
+                isAdministrator());
     }
 
     @PostMapping("/{requestId}/pay")
     public WithdrawalRequestResponse pay(@PathVariable UUID requestId, @Valid @RequestBody PayWithdrawalRequest request) {
-        return withdrawalRequestService.pay(requestId, request.getIdempotencyKey(), staffProvider.getStaff());
+        return withdrawalRequestService.pay(requestId, request.getIdempotencyKey(), staffProvider.getStaff(),
+                isAdministrator());
+    }
+
+    // Administrators act on every branch's requests; agents only on their own branch's.
+    private boolean isAdministrator() {
+        return staffProvider.hasRole(Roles.ADMINISTRATOR);
     }
 }

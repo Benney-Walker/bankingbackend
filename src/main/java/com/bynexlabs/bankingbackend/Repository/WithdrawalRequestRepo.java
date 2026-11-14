@@ -26,5 +26,9 @@ public interface WithdrawalRequestRepo extends JpaRepository<WithdrawalRequest, 
 
     Page<WithdrawalRequest> findByStatus(WithdrawalRequestStatus status, Pageable pageable);
 
+    /** Requests for members of one branch: what an agent may review. */
+    Page<WithdrawalRequest> findByStatusAndMemberAccount_Member_Branch_Id(WithdrawalRequestStatus status, UUID branchId,
+                                                                         Pageable pageable);
+
     Page<WithdrawalRequest> findByRequestedBy_Id(UUID staffId, Pageable pageable);
 }

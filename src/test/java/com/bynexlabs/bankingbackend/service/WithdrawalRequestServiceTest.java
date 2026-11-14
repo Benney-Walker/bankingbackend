@@ -29,11 +29,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -68,6 +72,9 @@ class WithdrawalRequestServiceTest {
     private final Branch tarkwa = Branch.builder().id(UUID.randomUUID()).name("Tarkwa").build();
     private final Staff collector = Staff.builder().id(UUID.randomUUID()).staffId("900110").branch(tarkwa).build();
     private final Staff agent = Staff.builder().id(UUID.randomUUID()).staffId("900105").branch(tarkwa).build();
+    private final Branch takoradi = Branch.builder().id(UUID.randomUUID()).name("Takoradi").build();
+    private final Staff otherBranchAgent = Staff.builder().id(UUID.randomUUID()).staffId("900106").branch(takoradi).build();
+    private final Staff administrator = Staff.builder().id(UUID.randomUUID()).staffId("900101").branch(takoradi).build();
     private final Member member = Member.builder().id(UUID.randomUUID()).firstName("Ama").lastName("Mensah")
             .branch(tarkwa).membershipStatus(MembershipStatus.ACTIVE).build();
     private final MemberAccount savings = account("1000000002", AccountType.SAVINGS);
@@ -164,7 +171,7 @@ class WithdrawalRequestServiceTest {
         WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusMinutes(3));
         locked(request);
 
-        assertThatThrownBy(() -> service.approve(request.getId(), agent))
+        assertThatThrownBy(() -> service.approve(request.getId(), agent, false))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("The collector can still correct this request until 10:07");
     }
@@ -174,7 +181,7 @@ class WithdrawalRequestServiceTest {
         WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusMinutes(30));
         locked(request);
 
-        WithdrawalRequestResponse response = service.approve(request.getId(), agent);
+        WithdrawalRequestResponse response = service.approve(request.getId(), agent, false);
 
         assertThat(response.status()).isEqualTo(WithdrawalRequestStatus.APPROVED);
         assertThat(response.reviewedByStaffId()).isEqualTo("900105");
@@ -184,7 +191,7 @@ class WithdrawalRequestServiceTest {
 
     @Test
     void rejectionNeedsAReason() {
-        assertThatThrownBy(() -> service.reject(UUID.randomUUID(), " ", agent))
+        assertThatThrownBy(() -> service.reject(UUID.randomUUID(), " ", agent, false))
                 .isInstanceOf(BadRequestException.class);
     }
 
@@ -193,7 +200,7 @@ class WithdrawalRequestServiceTest {
         WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusMinutes(30));
         locked(request);
 
-        WithdrawalRequestResponse response = service.reject(request.getId(), "Member asked to cancel", agent);
+        WithdrawalRequestResponse response = service.reject(request.getId(), "Member asked to cancel", agent, false);
 
         assertThat(response.status()).isEqualTo(WithdrawalRequestStatus.REJECTED);
         assertThat(response.rejectionReason()).isEqualTo("Member asked to cancel");
@@ -207,7 +214,7 @@ class WithdrawalRequestServiceTest {
         Transaction withdrawal = Transaction.builder().id(UUID.randomUUID()).idempotencyKey("pay-1").build();
         when(transactionRepo.findByIdempotencyKey("pay-1")).thenReturn(Optional.of(withdrawal));
 
-        WithdrawalRequestResponse response = service.pay(request.getId(), "pay-1", agent);
+        WithdrawalRequestResponse response = service.pay(request.getId(), "pay-1", agent, false);
 
         ArgumentCaptor<TransactionRequest> sent = ArgumentCaptor.forClass(TransactionRequest.class);
         verify(moneyMovementService).withdraw(sent.capture(), eq(agent));
@@ -223,7 +230,7 @@ class WithdrawalRequestServiceTest {
         WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusHours(1));
         locked(request);
 
-        assertThatThrownBy(() -> service.pay(request.getId(), "pay-1", agent))
+        assertThatThrownBy(() -> service.pay(request.getId(), "pay-1", agent, false))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Only approved requests can be paid; this one is PENDING");
         verify(moneyMovementService, never()).withdraw(any(), any());
@@ -235,7 +242,70 @@ class WithdrawalRequestServiceTest {
         request.setTransaction(Transaction.builder().id(UUID.randomUUID()).idempotencyKey("pay-1").build());
         locked(request);
 
-        assertThat(service.pay(request.getId(), "pay-1", agent).status()).isEqualTo(WithdrawalRequestStatus.PAID);
+        assertThat(service.pay(request.getId(), "pay-1", agent, false).status()).isEqualTo(WithdrawalRequestStatus.PAID);
         verify(moneyMovementService, never()).withdraw(any(), any());
+    }
+
+    // --- branch rule (owner decision 2026-11-14) ------------------------------------------
+
+    @Test
+    void agentListsOnlyTheirOwnBranchsRequests() {
+        WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusMinutes(30));
+        Page<WithdrawalRequest> page = new PageImpl<>(List.of(request));
+        when(requestRepo.findByStatusAndMemberAccount_Member_Branch_Id(eq(WithdrawalRequestStatus.PENDING), eq(tarkwa.getId()),
+                any(Pageable.class))).thenReturn(page);
+
+        assertThat(service.list(null, 0, 20, agent, false).getContent()).hasSize(1);
+        verify(requestRepo, never()).findByStatus(any(), any());
+    }
+
+    @Test
+    void administratorListsEveryBranch() {
+        when(requestRepo.findByStatus(eq(WithdrawalRequestStatus.APPROVED), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.list(WithdrawalRequestStatus.APPROVED, 0, 20, administrator, true);
+
+        verify(requestRepo, never()).findByStatusAndMemberAccount_Member_Branch_Id(any(), any(), any());
+    }
+
+    @Test
+    void agentCantApproveAnotherBranchsRequest() {
+        WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusMinutes(30));
+        locked(request);
+
+        assertThatThrownBy(() -> service.approve(request.getId(), otherBranchAgent, false))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("This request is from another branch");
+        assertThat(request.getStatus()).isEqualTo(WithdrawalRequestStatus.PENDING);
+    }
+
+    @Test
+    void agentCantRejectAnotherBranchsRequest() {
+        WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusMinutes(30));
+        locked(request);
+
+        assertThatThrownBy(() -> service.reject(request.getId(), "Member asked to cancel", otherBranchAgent, false))
+                .isInstanceOf(ForbiddenException.class);
+        assertThat(request.getStatus()).isEqualTo(WithdrawalRequestStatus.PENDING);
+    }
+
+    @Test
+    void agentCantPayAnotherBranchsRequest() {
+        WithdrawalRequest request = request(WithdrawalRequestStatus.APPROVED, NOW.minusHours(1));
+        locked(request);
+
+        assertThatThrownBy(() -> service.pay(request.getId(), "pay-1", otherBranchAgent, false))
+                .isInstanceOf(ForbiddenException.class);
+        verifyNoInteractions(moneyMovementService);
+    }
+
+    @Test
+    void administratorCanApproveAnyBranchsRequest() {
+        WithdrawalRequest request = request(WithdrawalRequestStatus.PENDING, NOW.minusMinutes(30));
+        locked(request);
+
+        assertThat(service.approve(request.getId(), administrator, true).status())
+                .isEqualTo(WithdrawalRequestStatus.APPROVED);
     }
 }

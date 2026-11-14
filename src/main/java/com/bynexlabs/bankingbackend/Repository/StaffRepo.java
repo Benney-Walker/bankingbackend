@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,10 +16,7 @@ import java.util.UUID;
 public interface StaffRepo extends JpaRepository<Staff, UUID> {
     Optional<Staff> findByStaffId(String staffId);
 
-    // Used by JwtAuthenticationFilter on every request. Roles are fetched in the same query
-    // because the filter runs outside a transaction, where the lazy collection can't load.
-    @Query("select distinct s from Staff s left join fetch s.roles where s.staffId = :staffId")
-    Optional<Staff> findWithRolesByStaffId(@Param("staffId") String staffId);
+    List<Staff> findByBranch_Id(UUID branchId);
 
     boolean existsByFirstNameAndLastNameAndDateOfBirth(
             String firstName, String lastName, LocalDate dateOfBirth

@@ -30,9 +30,14 @@ public class AuthController {
         return ResponseEntity.ok(authService.collectorAuthentication(loginRequest));
     }
 
-    @PostMapping("/v1/refresh-token")
-    public ResponseEntity<?> refreshToken(@Valid @RequestBody RefreshRequest refreshRequest) {
+    @PostMapping("/v1/refresh-staff-token")
+    public ResponseEntity<?> refreshStaffToken(@Valid @RequestBody RefreshRequest refreshRequest) {
         return ResponseEntity.ok(authService.refreshStaffAccessToken(refreshRequest));
+    }
+
+    @PostMapping("/v1/refresh-collector-token")
+    public ResponseEntity<?> refreshCollectorToken(@Valid @RequestBody RefreshRequest refreshRequest) {
+        return ResponseEntity.ok(authService.refreshCollectorAccessToken(refreshRequest));
     }
 
     @PostMapping("/v1/password-reset/request-code")

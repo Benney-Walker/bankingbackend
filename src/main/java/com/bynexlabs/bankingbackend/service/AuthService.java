@@ -114,4 +114,14 @@ public class AuthService {
 
         return jwtUtility.generateAccessToken(staffId, rolesList);
     }
+
+    // -----------------HELPER----------------
+    private void verifyRefreshToken(RefreshRequest refreshRequest) {
+        String refreshToken = refreshRequest.getRefreshToken();
+
+        if (!jwtUtility.isRefreshToken(refreshToken)) {
+            throw new UnauthorizedException("Invalid refresh token");
+        }
+    }
+
 }

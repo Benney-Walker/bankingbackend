@@ -6,6 +6,7 @@ import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
 import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
+import com.bynexlabs.bankingbackend.models.Collector;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -13,8 +14,9 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +27,8 @@ public class AuthService {
     private final JwtUtility jwtUtility;
 
     private final AuthenticationManager authenticationManager;
+
+    private final CollectorService collectorService;
 
     public ResponseEntity<?> staffAuthentication(LoginRequest loginRequest) {
 
@@ -68,10 +72,9 @@ public class AuthService {
                 )
         );
 
-        Staff staff = staffService.getStaffDetails(loginRequest.getStaffId());
+        Collector collector = collectorService.getCollector(loginRequest.getStaffId());
 
-        List<String> rolesList = staff.getRoles().stream().map(
-                role -> role.getRole().name()).toList();
+        List<String> rolesList = Collections.singletonList(collector.getRole().name());
 
         String accessToken = jwtUtility.generateAccessToken(
                 loginRequest.getStaffId(),
@@ -83,7 +86,8 @@ public class AuthService {
         );
 
         return LoginResponse.builder()
-                        .staffName(staff.getFirstName().toUpperCase() + " " + staff.getLastName().toUpperCase())
+                        .staffName(
+                                collector.getFirstName().toUpperCase() + " " + collector.getLastName().toUpperCase())
                         .roles(rolesList)
                         .authToken(accessToken)
                         .refreshToken(refreshToken)

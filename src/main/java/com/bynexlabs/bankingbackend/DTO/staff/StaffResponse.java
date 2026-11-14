@@ -27,6 +27,7 @@ public class StaffResponse {
     private String phoneNumber;
     private String email;
     private String residentialAddress;
+    private String branchName;
     private StaffStatus status;
     private List<Roles> roles;
     private LocalDateTime createdAt;
@@ -44,6 +45,7 @@ public class StaffResponse {
                 .phoneNumber(staff.getPhoneNumber())
                 .email(staff.getEmail())
                 .residentialAddress(staff.getResidentialAddress())
+                .branchName(staff.getBranch().getName())
                 .status(staff.getStaffStatus())
                 .roles(staff.getRoles() == null ? List.of() : staff.getRoles().stream().map(role -> role.getRole()).toList())
                 .createdAt(staff.getCreatedAt())

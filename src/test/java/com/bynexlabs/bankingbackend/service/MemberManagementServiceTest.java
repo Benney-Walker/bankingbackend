@@ -1,7 +1,6 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
-import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
@@ -16,12 +15,8 @@ import com.bynexlabs.bankingbackend.models.MemberAccount;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PagedModel;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,14 +29,11 @@ import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** Member search, profile and contact updates (roadmap 2.3). */
+/** Member profile and contact updates (roadmap 2.3; search was removed by the owner on purpose). */
 @ExtendWith(MockitoExtension.class)
 class MemberManagementServiceTest {
 
@@ -57,13 +49,16 @@ class MemberManagementServiceTest {
     @Mock
     private MemberAccountRepo memberAccountRepo;
 
+    @Mock
+    private BranchService branchService;
+
     private MemberService memberService;
 
     private final UUID memberId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
-        memberService = new MemberService(memberRepository, outboxService, memberAccountRepo, auditLogService);
+        memberService = new MemberService(memberRepository, outboxService, memberAccountRepo, auditLogService, branchService);
     }
 
     private Member member() {
@@ -94,36 +89,6 @@ class MemberManagementServiceTest {
                 .residentialAddress("Takoradi")
                 .occupation("Seamstress")
                 .build();
-    }
-
-    @Test
-    void blankQueryListsAllMembersSortedByName() {
-        when(memberRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(member())));
-
-        PagedModel<MemberSummaryResponse> result = memberService.searchMembers("  ", 0, 20);
-
-        assertThat(result.getContent()).extracting(MemberSummaryResponse::getMemberId).containsExactly(memberId);
-        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(memberRepository).findAll(pageable.capture());
-        assertThat(pageable.getValue().getSort().getOrderFor("lastName")).isNotNull();
-        verify(memberRepository, never()).search(anyString(), any());
-    }
-
-    @Test
-    void queryIsTrimmedAndSearched() {
-        when(memberRepository.search(eq("Mensah"), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(member())));
-
-        PagedModel<MemberSummaryResponse> result = memberService.searchMembers(" Mensah ", 0, 20);
-
-        assertThat(result.getContent()).hasSize(1);
-        assertThat(result.getContent().get(0).getPhoneNumber()).isEqualTo("0241234567");
-    }
-
-    @Test
-    void searchRejectsPageSizeAboveLimit() {
-        assertThatThrownBy(() -> memberService.searchMembers(null, 0, MemberService.MAX_PAGE_SIZE + 1))
-                .isInstanceOf(BadRequestException.class);
-        verifyNoInteractions(memberRepository);
     }
 
     @Test

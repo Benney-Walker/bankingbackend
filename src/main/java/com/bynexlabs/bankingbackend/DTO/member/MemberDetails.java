@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.DTO.member;
 
 import jakarta.persistence.Column;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -38,6 +39,8 @@ public class MemberDetails {
     @NotBlank(message = "Account type can't be empty")
     private String accountType;
 
-    @NotBlank(message = "Branch Id can't be empty")
+    // @NotNull, not @NotBlank: @NotBlank only applies to text, and on a UUID it made every
+    // registration fail validation.
+    @NotNull(message = "Branch Id can't be empty")
     private UUID branchId;
 }

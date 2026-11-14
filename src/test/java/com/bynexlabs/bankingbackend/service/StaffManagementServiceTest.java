@@ -16,12 +16,8 @@ import com.bynexlabs.bankingbackend.models.StaffRoles;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PagedModel;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.LocalDate;
@@ -42,7 +38,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Administrator staff management (roadmap 1.5a): list, view and profile updates. */
@@ -107,28 +102,28 @@ class StaffManagementServiceTest {
                 .build();
     }
 
+    // Owner's listing rule: an agent sees their own branch's staff, an administrator everyone.
     @Test
-    void listRejectsPageSizeAboveLimit() {
-        assertThatThrownBy(() -> staffService.listStaff(0, StaffService.MAX_PAGE_SIZE + 1))
-                .isInstanceOf(BadRequestException.class);
-        verifyNoInteractions(staffRepo);
+    void agentSeesOnlyTheirBranchsStaff() {
+        Staff agent = existingStaff();
+        when(staffRepo.findByBranch_Id(agent.getBranch().getId())).thenReturn(List.of(agent));
+
+        List<StaffResponse> result = staffService.listStaff(agent);
+
+        assertThat(result).extracting(StaffResponse::getStaffId).containsExactly(STAFF_ID);
+        verify(staffRepo, never()).findAll();
     }
 
     @Test
-    void listReturnsStaffSortedByStaffIdWithPageMetadata() {
-        when(staffRepo.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(existingStaff())));
+    void administratorSeesEveryone() {
+        Staff admin = existingStaff();
+        admin.getRoles().get(0).setRole(Roles.ADMINISTRATOR);
+        when(staffRepo.findAll()).thenReturn(List.of(admin, existingStaff()));
 
-        PagedModel<StaffResponse> result = staffService.listStaff(0, 20);
+        List<StaffResponse> result = staffService.listStaff(admin);
 
-        assertThat(result.getContent()).extracting(StaffResponse::getStaffId).containsExactly(STAFF_ID);
-        assertThat(result.getContent().get(0).getRoles()).containsExactly(Roles.AGENT);
-        assertThat(result.getContent().get(0).getMiddleName()).isNull();
-        assertThat(result.getMetadata().totalElements()).isEqualTo(1);
-
-        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(staffRepo).findAll(pageable.capture());
-        assertThat(pageable.getValue().getPageSize()).isEqualTo(20);
-        assertThat(pageable.getValue().getSort().getOrderFor("staffId")).isNotNull();
+        assertThat(result).hasSize(2);
+        verify(staffRepo, never()).findByBranch_Id(any());
     }
 
     @Test

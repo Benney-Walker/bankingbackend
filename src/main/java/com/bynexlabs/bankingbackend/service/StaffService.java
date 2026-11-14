@@ -325,4 +325,21 @@ public class StaffService {
         }
         return staffRoles;
     }
+
+    private Staff findStaffOrThrow(String staffId) {
+        return staffRepo.findByStaffId(staffId)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff not found"));
+    }
+
+    private LocalDate parseDateOfBirth(String dateOfBirth) {
+        try {
+            return LocalDate.parse(dateOfBirth, DateTimeFormatter.ISO_DATE);
+        } catch (DateTimeParseException e) {
+            throw new BadRequestException("Invalid date of birth; expected yyyy-MM-dd");
+        }
+    }
+
+    private void validatePhoneNumber(String phoneNumber) {
+        PhoneNumberRules.requireLocalFormat(phoneNumber);
+    }
 }

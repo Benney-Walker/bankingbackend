@@ -127,6 +127,26 @@ Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundExce
 - **Actuator:** only `/actuator/health` and `/actuator/info` are exposed, and both need an ADMINISTRATOR access token (401 without a token, 403 for other roles). Health details (database, RabbitMQ, disk) are shown to that administrator. Every other actuator endpoint (env, beans, configprops, heapdump, …) is off.
 - **API docs:** set `API_DOCS_ENABLED=true` to serve the OpenAPI description at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`. Off by default. When on, these pages are public, so keep it off in production. In Swagger UI, use **Authorize** with an access token from login to try endpoints.
 
+## Financial settings
+
+Settings the credit union changes without a code change live in the `financial_settings` table (V31), one row. Administrators will edit them from the desktop app; the backend reads them through `FinancialSettingsService`.
+
+| Setting | Meaning | Mock value |
+|---|---|---|
+| `initialShareAmount` | Fixed amount (GHS) taken from a member's first deposit for the mandatory share purchase | 50.00 |
+| `withdrawalMinBalance` | Balance an account must keep after a withdrawal (GHS) | 20.00 |
+| `withdrawalDailyLimit` | Most that can be withdrawn from one account per day (GHS) | 10,000.00 |
+| `withdrawalFeeEnabled` | Whether the withdrawal fee is charged | true |
+| `withdrawalFeeType` | `FLAT` (GHS per withdrawal) or `PERCENTAGE` (of the amount withdrawn) | FLAT |
+| `withdrawalFeeValue` | GHS for `FLAT`; percent for `PERCENTAGE` (1.5 = 1.5%, at most 100) | 2.00 |
+
+The mock values are placeholders until the credit union gives its real ones.
+
+- **Updating:** `FinancialSettingsService.updateSettings` replaces all values at once. The request carries the `version` the client last read; if someone else saved in between, it's rejected with 409 so they can reload. Saving unchanged values does nothing.
+- **Validation:** amounts can't be negative, the daily limit must be above zero, at most 4 decimal places, and a percentage fee can't exceed 100. The database enforces the same rules.
+- **History:** each change is recorded in the audit log (`FINANCIAL_SETTINGS_UPDATED`) with old and new values and who made it.
+- No endpoint yet; the desktop app's settings screen will need one. Nothing reads these settings yet: deposits, the first-deposit share purchase and withdrawals will use them when they're built.
+
 ## Audit log
 
 Business actions are recorded in the `audit_log` table (V22), in the same database transaction as the action, so an action and its entry are saved together or not at all. Each entry has the time, the acting staff code (empty for automated actions), the action, the target (`STAFF` with a staff code, or `MEMBER` with a member ID) and a short description. The table is append-only.
@@ -140,6 +160,7 @@ Business actions are recorded in the `audit_log` table (V22), in the same databa
 | `KYC_AUTO_VERIFIED`, `KYC_SENT_TO_MANUAL_REVIEW` | Automated check outcome (no actor). The manual-review reason stays on the KYC record because it quotes personal details |
 | `KYC_APPROVED`, `KYC_REJECTED` | Manual review by an administrator; rejections include the reason |
 | `KYC_DOCUMENT_VIEWED` | A staff member opened a member's ID document |
+| `FINANCIAL_SETTINGS_UPDATED` | An administrator changed the financial settings (target `SETTINGS`, old and new values) |
 
 Passwords, reset codes and document contents are never written to the log. There's no endpoint for reading the log yet.
 
@@ -159,6 +180,13 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V20 | `member.registered_by`: the staff member who registered each member (null for members registered earlier) |
 | V21 | `member_kyc_records.id_number`: the ID document number typed at upload, unique across members |
 | V22 | `audit_log`: business audit trail (who, what, which record, when). Append-only: triggers reject UPDATE, DELETE and TRUNCATE |
+| V23 | `branch_table`: credit union branches (name, location) |
+| V24, V25 | Required `branch` on `member` and `staffs` |
+| V26 | `collector` table |
+| V27 | Required `branch` on `collector` |
+| V28 | `password_reset_codes.is_sent`: whether the reset SMS went out |
+| V29, V30 | `password` and `role` on `collector` |
+| V31 | `financial_settings`: the editable first-deposit share amount and withdrawal settings, one row, seeded with **mock values** |
 
 ## Status
 
@@ -172,6 +200,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
 | Automated KYC verification | Works end to end (3.1): R2 download and Textract OCR run outside database transactions; first name, last name, date of birth and ID number must all be read with ≥ 85% confidence and all match (3.6) for automatic activation; anything missing, unclear or different goes to `MANUAL_REVIEW` with a reason listing each problem. Dates are compared only through the OCR provider's ISO-normalised value, never guessed from printed text. OCR confirms the text matches; it doesn't prove the document is genuine |
 | Manual KYC approval and rejection | Implemented (ADMINISTRATOR only) |
+| Financial settings | Stored and editable through the service (V31), mock values; no endpoint yet |
 | Endpoint role permissions | Implemented for all current endpoints (1.1) |
 | Transaction groundwork | Implemented (5.1): account row locking (`PESSIMISTIC_WRITE`), idempotency keys, amount rules. No money-moving endpoint yet |
 | Deposits, withdrawals, transfers, ledger postings, shares, SMS on collection | Not implemented; waits on the approved chart of accounts and posting rules (D15, D30) |

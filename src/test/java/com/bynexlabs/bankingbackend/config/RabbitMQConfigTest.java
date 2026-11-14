@@ -14,7 +14,8 @@ class RabbitMQConfigTest {
     @Test
     void workQueuesDeadLetterToTheDeadLetterExchange() {
         for (Queue queue : new Queue[]{
-                config.defaultShareAccountQueue(), config.otherAccountCreationQueue(), config.kycVerificationQueue()}) {
+                config.defaultShareAccountQueue(), config.otherAccountCreationQueue(), config.kycVerificationQueue(),
+                config.transactionSmsQueue()}) {
             assertThat(queue.isDurable()).isTrue();
             assertThat(queue.getArguments())
                     .containsEntry("x-dead-letter-exchange", RabbitMQConfig.DEAD_LETTER_EXCHANGE_NAME);
@@ -29,6 +30,8 @@ class RabbitMQConfigTest {
                 RabbitMQConfig.OTHER_ACCOUNT_CREATION_DEAD_LETTER_QUEUE_NAME, RabbitMQConfig.OTHER_ACCOUNT_CREATION_ROUTING_KEY);
         assertBinding(config.kycVerificationDeadLetterBinding(),
                 RabbitMQConfig.KYC_VERIFICATION_DEAD_LETTER_QUEUE_NAME, RabbitMQConfig.KYC_VERIFICATION_ROUTING_KEY);
+        assertBinding(config.transactionSmsDeadLetterBinding(),
+                RabbitMQConfig.TRANSACTION_SMS_DEAD_LETTER_QUEUE_NAME, RabbitMQConfig.TRANSACTION_SMS_ROUTING_KEY);
     }
 
     private void assertBinding(Binding binding, String queue, String routingKey) {

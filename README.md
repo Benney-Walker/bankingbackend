@@ -130,9 +130,9 @@ Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundExce
 
 ## RabbitMQ messaging
 
-- Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue` and `kyc_verification_queue`.
-- **Retries and dead letters:** a message whose listener throws gets 3 retries (1 s, 2 s, 4 s). After that it's rejected and moved to its dead-letter queue (`default_share_account_dead_letter_queue`, `other_account_creation_dead_letter_queue` or `kyc_verification_dead_letter_queue`) through the exchange `cash_client_ecosystem_dead_letter`, keeping its original routing key. Failed messages never loop forever. Inspect dead-letter queues in the RabbitMQ management UI.
-- **Duplicates:** messages come from the outbox and carry its ID as the AMQP message ID. The account-creation consumers record that ID in `processed_messages` in the same transaction as the account, and skip a message they've already handled. The KYC consumer only acts on `PENDING` records, so a repeat is a no-op.
+- Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue`, `kyc_verification_queue` and `transaction_sms_queue` (member SMS after each transaction; new queues are simply created on start-up).
+- **Retries and dead letters:** a message whose listener throws gets 3 retries (1 s, 2 s, 4 s). After that it's rejected and moved to its dead-letter queue (`default_share_account_dead_letter_queue`, `other_account_creation_dead_letter_queue`, `kyc_verification_dead_letter_queue` or `transaction_sms_dead_letter_queue`) through the exchange `cash_client_ecosystem_dead_letter`, keeping its original routing key. Failed messages never loop forever. Inspect dead-letter queues in the RabbitMQ management UI.
+- **Duplicates:** messages come from the outbox and carry its ID as the AMQP message ID. The account-creation consumers record that ID in `processed_messages` in the same transaction as the account, and skip a message they've already handled. The KYC consumer only acts on `PENDING` records, so a repeat is a no-op. The SMS consumer can't put an SMS in a database transaction, so it checks `processed_messages`, sends, then records the ID; a crash in between can send one SMS twice.
 
 - **Automated KYC flow:** upload → `PENDING` record and an outbox message → the consumer reads the record (short transaction) → downloads the document from R2 and runs OCR (no transaction open) → writes the result with the record locked (short transaction). Storage or OCR failures send the record to `MANUAL_REVIEW`; a result for a record that was approved manually in the meantime is ignored.
 
@@ -179,6 +179,18 @@ Administrators and agents record money movements at the office through `/api/tra
 - Recorded transactions are final (no reversals). Current and available balance move together for now.
 
 **How a transaction is saved:** in one database transaction, the account rows are locked (`SELECT … FOR UPDATE`; deposits and share purchases also lock the member's shares account, transfers lock both accounts in ID order), a retry is detected, the rules are checked, balances change, the transaction row is saved and its journal lines are posted. All of it commits together or not at all.
+
+**Member SMS (owner decision 2026-11-14):** every transaction texts the member their account update. The message is written inside the transaction, so it shows the balance right after it, and goes through the outbox and `transaction_sms_queue`, so it's sent only after the transaction commits and never for a failed one. Account numbers show only the last 4 digits; each message ends with a reference (first 8 characters of the transaction ID). A transfer between two members texts both; between a member's own accounts, one message. A retried request sends no second SMS. If Vynfy refuses or can't be reached, the message is retried 3 times and then moves to `transaction_sms_dead_letter_queue`.
+
+| Transaction | Example |
+|---|---|
+| Deposit | GHS 40.00 deposited to your SAVINGS account ****0002 on 14/11/2026 10:00. New balance: GHS 140.00. Ref: 3F2A9C1B |
+| First deposit | GHS 120.00 deposited on 14/11/2026 10:00: GHS 50.00 to shares ****0001, GHS 70.00 to CURRENT ****0002. Balances: shares GHS 50.00, CURRENT GHS 70.00. Ref: 3F2A9C1B |
+| Share purchase | GHS 25.00 paid into your shares account ****0001 on 14/11/2026 10:00. New balance: GHS 75.00. Ref: 3F2A9C1B |
+| Withdrawal | GHS 100.00 withdrawn from your SAVINGS account ****0002 on 14/11/2026 10:05. Fee: GHS 2.00. New balance: GHS 38.00. Ref: 7B1D04E2 |
+| Transfer, sender | GHS 30.00 transferred from your SAVINGS account ****0002 to account ****0005 on 14/11/2026 10:00. New balance: GHS 470.00. Ref: … |
+| Transfer, receiver | GHS 30.00 received in your CURRENT account ****0005 from account ****0002 on 14/11/2026 10:00. New balance: GHS 30.00. Ref: … |
+| Own accounts | GHS 30.00 moved from your SAVINGS account ****0002 to your CURRENT account ****0003 on 14/11/2026 10:00. Balances: SAVINGS GHS 470.00, CURRENT GHS 30.00. Ref: … |
 
 **Ledger:** journal lines come from the `posting_rule` table (V34), not code, so the accountant can change which GL account each event uses. Each rule puts one part of the money (`PRINCIPAL`, `FEE`, `SHARE`, `REMAINDER`) on the debit or credit side of a GL account, optionally only for a given account type on the transaction's main account or its counterparty. If the rules can't produce a balanced journal that accounts for every amount, the whole transaction is refused (500) and nothing is saved. Journal lines can't be changed or deleted (database triggers).
 
@@ -253,7 +265,8 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Transactions | Deposits (with first-deposit share split), share purchases, withdrawals (fee on top, minimum balance, daily limit) and transfers at the office, with balance and history reads |
 | General ledger | Working chart of accounts, posting rules as data, balanced and immutable journal lines, trial balance |
 | Endpoint role permissions | URL rules in `SecurityConfig` (see API) |
-| Collector recording, collection SMS, loans | Not implemented |
+| Transaction SMS | Every office transaction texts the member (outbox + `transaction_sms_queue`, retries, dead-letter queue) |
+| Collector recording, loans | Not implemented |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
 ### Completed increments
@@ -283,3 +296,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **8.1 Business audit log:** `audit_log` table (V22, append-only, checked on PostgreSQL 16) and `AuditLogService`, which joins the caller's transaction. Staff management, password resets, member registration and contact updates, and every KYC step (submit, re-upload, automated result, manual approval/rejection, document viewing) are recorded with who acted, on what, and when. Viewing a KYC document now runs in a read-write transaction so the view is recorded.
 - **9.x Actuator and API docs:** `spring-boot-starter-actuator` with only health and info exposed, both ADMINISTRATOR-only (owner decision 2026-11-07: no public actuator access); springdoc-openapi 3.2.0 (the line for Spring Boot 4.1) with the JWT bearer scheme documented, served only when `API_DOCS_ENABLED=true`.
 - **Financial settings and the ledger/transaction engine (PR #14):** editable `financial_settings` with mock values (V31, V32); working chart of accounts (V33) and posting rules as data (V34); `PostingService` builds balanced journal lines from the rules; deposits with the first-deposit share split, share purchases, withdrawals (fee on top, rounded to 2 decimals for percentages, minimum balance, daily limit) and transfers between savings/current accounts of the same or different members, at `/api/transaction` for ADMINISTRATOR and AGENT; account balance and history reads; trial balance at `/api/admin/ledger`. Journal lines and transactions are protected by triggers (V35).
+- **Transaction SMS (PR #14):** every transaction queues a member SMS with the new balance through the outbox; `TransactionSmsSender` sends it after commit with retries and a dead-letter queue (`transaction_sms_queue`, `transaction_sms_dead_letter_queue`).

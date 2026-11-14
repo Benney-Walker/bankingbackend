@@ -33,4 +33,20 @@ public class ProcessedMessageService {
         }
         return first;
     }
+
+    /**
+     * For consumers whose work is an external call that can't join a database transaction (an
+     * SMS): check first, do the work, then record it with recordDelivered.
+     */
+    @Transactional(readOnly = true)
+    public boolean isProcessed(String messageId, String consumer) {
+        return messageId != null && processedMessageRepo.isProcessed(messageId, consumer);
+    }
+
+    @Transactional
+    public void recordDelivered(String messageId, String consumer) {
+        if (messageId != null) {
+            processedMessageRepo.insertIfAbsent(messageId, consumer);
+        }
+    }
 }

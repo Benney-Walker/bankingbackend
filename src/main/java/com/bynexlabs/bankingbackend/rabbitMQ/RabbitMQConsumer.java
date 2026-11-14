@@ -1,5 +1,7 @@
 package com.bynexlabs.bankingbackend.rabbitMQ;
 
+import com.bynexlabs.bankingbackend.DTO.rabbitMQ.TransactionSmsEvent;
+import com.bynexlabs.bankingbackend.service.TransactionSmsSender;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.KycVerificationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.OtherAccountCreationEvent;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
@@ -16,6 +18,8 @@ import org.springframework.stereotype.Component;
 public class RabbitMQConsumer {
 
     private final AsyncService asyncService;
+
+    private final TransactionSmsSender transactionSmsSender;
 
     @RabbitListener(queues = RabbitMQConfig.DEFAULT_SHARES_ACCOUNT_QUEUE_NAME)
     public void consumeDefaultShareAccountEvent(
@@ -36,5 +40,13 @@ public class RabbitMQConsumer {
     @RabbitListener(queues = RabbitMQConfig.KYC_VERIFICATION_QUEUE_NAME)
     public void consumeKycVerificationEvent(KycVerificationEvent kycEvent) {
         asyncService.processKycVerification(kycEvent);
+    }
+
+    @RabbitListener(queues = RabbitMQConfig.TRANSACTION_SMS_QUEUE_NAME)
+    public void consumeTransactionSmsEvent(
+            TransactionSmsEvent smsEvent,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId
+    ) {
+        transactionSmsSender.send(smsEvent, messageId);
     }
 }

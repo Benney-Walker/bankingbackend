@@ -46,8 +46,9 @@ import java.util.Optional;
  * 1. lock the account(s) with SELECT ... FOR UPDATE (AccountLockService);
  * 2. if the idempotency key was already used for the same request, return that transaction;
  * 3. check the business rules against the locked balances and the financial settings;
- * 4. update the balances, save the transaction and post its journal lines (PostingService).
- * Either all of it commits or none of it does. Recorded transactions are final (D16).
+ * 4. update the balances, save the transaction and post its journal lines (PostingService);
+ * 5. queue the member SMS with the new balance (TransactionSmsService), sent after commit.
+ * Either all of it commits or none of it does; a retried request sends no second SMS. Recorded transactions are final (D16).
  *
  * current and available balance move together for now: nothing holds funds yet (D21).
  */
@@ -68,6 +69,8 @@ public class MoneyMovementService {
     private final FinancialSettingsService settingsService;
 
     private final PostingService postingService;
+
+    private final TransactionSmsService transactionSmsService;
 
     /** The credit union's day for the daily withdrawal limit. Replaceable in tests. */
     Clock clock = Clock.system(ZoneId.of("Africa/Accra"));
@@ -101,6 +104,7 @@ public class MoneyMovementService {
             Transaction saved = transactionService.record(transaction);
             postingService.post(saved, Posting.of(PostingEvent.DEPOSIT, account.getAccountType(), null)
                     .with(AmountPart.PRINCIPAL, amount), now);
+            transactionSmsService.deposit(saved, account);
             return TransactionResponse.from(saved);
         }
 
@@ -124,6 +128,7 @@ public class MoneyMovementService {
                 .with(AmountPart.PRINCIPAL, amount)
                 .with(AmountPart.SHARE, shares)
                 .with(AmountPart.REMAINDER, remainder), now);
+        transactionSmsService.firstDeposit(saved, account, sharesAccount);
         return TransactionResponse.from(saved);
     }
 
@@ -151,6 +156,7 @@ public class MoneyMovementService {
                 staff, request.getDescription(), now));
         postingService.post(saved, Posting.of(PostingEvent.SHARE_PURCHASE, AccountType.SHARES, null)
                 .with(AmountPart.PRINCIPAL, amount), now);
+        transactionSmsService.sharePurchase(saved, account);
         return TransactionResponse.from(saved);
     }
 
@@ -202,6 +208,7 @@ public class MoneyMovementService {
         postingService.post(saved, Posting.of(PostingEvent.WITHDRAWAL, account.getAccountType(), null)
                 .with(AmountPart.PRINCIPAL, amount)
                 .with(AmountPart.FEE, fee), now);
+        transactionSmsService.withdrawal(saved, account);
         return TransactionResponse.from(saved);
     }
 
@@ -245,6 +252,7 @@ public class MoneyMovementService {
         Transaction saved = transactionService.record(transaction);
         postingService.post(saved, Posting.of(PostingEvent.TRANSFER, from.getAccountType(), to.getAccountType())
                 .with(AmountPart.PRINCIPAL, amount), now);
+        transactionSmsService.transfer(saved, from, to);
         return TransactionResponse.from(saved);
     }
 

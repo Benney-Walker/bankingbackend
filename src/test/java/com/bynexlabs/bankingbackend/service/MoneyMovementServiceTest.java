@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -64,6 +65,8 @@ class MoneyMovementServiceTest {
     private FinancialSettingsService settingsService;
     @Mock
     private PostingService postingService;
+    @Mock
+    private TransactionSmsService transactionSmsService;
 
     private MoneyMovementService service;
 
@@ -72,7 +75,7 @@ class MoneyMovementServiceTest {
     @BeforeEach
     void setUp() {
         service = new MoneyMovementService(accountLockService, transactionService, transactionRepo,
-                memberAccountRepo, settingsService, postingService);
+                memberAccountRepo, settingsService, postingService, transactionSmsService);
         service.clock = Clock.fixed(NOW.atZone(ACCRA).toInstant(), ACCRA);
         lenient().when(transactionService.findReplay(anyString(), any(), anyString(), any(BigDecimal.class)))
                 .thenReturn(Optional.empty());
@@ -158,6 +161,8 @@ class MoneyMovementServiceTest {
         assertThat(posting.event()).isEqualTo(PostingEvent.DEPOSIT);
         assertThat(posting.primaryType()).isEqualTo(AccountType.SAVINGS);
         assertThat(posting.amounts()).containsEntry(AmountPart.PRINCIPAL, new BigDecimal("40"));
+        // Owner decision 2026-11-14: every transaction texts the member their new balance.
+        verify(transactionSmsService).deposit(transaction, savings);
     }
 
     // One split entry (owner decision 2026-11-14): the share amount goes to the shares account.
@@ -187,6 +192,7 @@ class MoneyMovementServiceTest {
                 .containsEntry(AmountPart.PRINCIPAL, new BigDecimal("120"))
                 .containsEntry(AmountPart.SHARE, new BigDecimal("50"))
                 .containsEntry(AmountPart.REMAINDER, new BigDecimal("70"));
+        verify(transactionSmsService).firstDeposit(transaction, current, shares);
     }
 
     @Test
@@ -203,6 +209,7 @@ class MoneyMovementServiceTest {
                 .hasMessage("The first deposit must be at least GHS 100.00");
         assertBalance(savings, "0");
         verify(transactionService, never()).record(any());
+        verifyNoInteractions(transactionSmsService);
     }
 
     @Test
@@ -235,6 +242,8 @@ class MoneyMovementServiceTest {
         assertBalance(savings, "140");
         verify(transactionService, never()).record(any());
         verify(postingService, never()).post(any(), any(), any());
+        // The member was texted when the transaction was first recorded.
+        verifyNoInteractions(transactionSmsService);
     }
 
     // --- share purchases ------------------------------------------------------------------
@@ -250,8 +259,10 @@ class MoneyMovementServiceTest {
         service.purchaseShares(request("1000000001", "25"), agent);
 
         assertBalance(shares, "75");
-        assertThat(recorded().getTransactionType()).isEqualTo(TransactionType.SHARES);
+        Transaction transaction = recorded();
+        assertThat(transaction.getTransactionType()).isEqualTo(TransactionType.SHARES);
         assertThat(posted().event()).isEqualTo(PostingEvent.SHARE_PURCHASE);
+        verify(transactionSmsService).sharePurchase(transaction, shares);
     }
 
     // Confirmed rule: a member's first transaction is always a deposit.
@@ -307,6 +318,7 @@ class MoneyMovementServiceTest {
         assertThat(posting.amounts())
                 .containsEntry(AmountPart.PRINCIPAL, new BigDecimal("100"))
                 .containsEntry(AmountPart.FEE, new BigDecimal("2"));
+        verify(transactionSmsService).withdrawal(transaction, savings);
     }
 
     @Test
@@ -337,6 +349,7 @@ class MoneyMovementServiceTest {
                 .hasMessageContaining("The most that can be withdrawn now is GHS 99.99");
         assertBalance(savings, "121.99");
         verify(transactionService, never()).record(any());
+        verifyNoInteractions(transactionSmsService);
     }
 
     @Test
@@ -408,6 +421,7 @@ class MoneyMovementServiceTest {
         assertThat(posting.event()).isEqualTo(PostingEvent.TRANSFER);
         assertThat(posting.primaryType()).isEqualTo(AccountType.SAVINGS);
         assertThat(posting.counterpartyType()).isEqualTo(AccountType.CURRENT);
+        verify(transactionSmsService).transfer(transaction, from, to);
     }
 
     @Test

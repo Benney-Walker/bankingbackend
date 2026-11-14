@@ -86,6 +86,11 @@ public class SecurityConfig {
                         // Must come before the /api/staff/** rule, which would otherwise match first.
                         .requestMatchers("/api/staff/v1/add-staff").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/staff/**").hasAnyAuthority(Roles.AGENT.name(), Roles.ADMINISTRATOR.name())
+                        // Office money movements (owner decision 2026-11-14): administrators and agents.
+                        // Collectors will record through their own flow later.
+                        .requestMatchers("/api/transaction/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
+                        // The collector app (owner decision 2026-11-14): collector accounts only.
+                        .requestMatchers("/api/collector/**").hasAuthority(Roles.COLLECTOR.name())
                         .anyRequest().authenticated()
                 ).sessionManagement( session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)

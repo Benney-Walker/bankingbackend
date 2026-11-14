@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.bynexlabs.bankingbackend.enums.AccountType;
+import static org.mockito.Mockito.times;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,6 +50,57 @@ class AccountLockServiceTest {
     private void stubAccount(MemberAccount account) {
         when(memberAccountRepo.findIdByAccountNumber(account.getAccountNumber())).thenReturn(Optional.of(account.getId()));
         when(memberAccountRepo.lockById(account.getId())).thenReturn(Optional.of(account));
+    }
+
+    // Deposits lock the account and the member's shares account, lower ID first.
+    @Test
+    void depositLocksTheAccountAndSharesAccountInIdOrder() {
+        MemberAccount savings = account(HIGH, "1000000002", AccountStatus.ACTIVE, MembershipStatus.ACTIVE);
+        MemberAccount shares = account(LOW, "1000000001", AccountStatus.ACTIVE, MembershipStatus.ACTIVE);
+        UUID memberId = savings.getMember().getId();
+        when(memberAccountRepo.findIdByAccountNumber("1000000002")).thenReturn(Optional.of(HIGH));
+        when(memberAccountRepo.findMemberIdById(HIGH)).thenReturn(Optional.of(memberId));
+        when(memberAccountRepo.findIdsByMemberIdAndType(memberId, AccountType.SHARES)).thenReturn(List.of(LOW));
+        when(memberAccountRepo.lockById(LOW)).thenReturn(Optional.of(shares));
+        when(memberAccountRepo.lockById(HIGH)).thenReturn(Optional.of(savings));
+
+        AccountLockService.AccountWithShares locked = accountLockService.lockWithSharesAccount("1000000002");
+
+        assertThat(locked.account()).isSameAs(savings);
+        assertThat(locked.sharesAccount()).isSameAs(shares);
+        InOrder order = inOrder(memberAccountRepo);
+        order.verify(memberAccountRepo).lockById(LOW);
+        order.verify(memberAccountRepo).lockById(HIGH);
+    }
+
+    @Test
+    void sharesAccountItselfIsLockedOnce() {
+        MemberAccount shares = account(LOW, "1000000001", AccountStatus.ACTIVE, MembershipStatus.ACTIVE);
+        UUID memberId = shares.getMember().getId();
+        when(memberAccountRepo.findIdByAccountNumber("1000000001")).thenReturn(Optional.of(LOW));
+        when(memberAccountRepo.findMemberIdById(LOW)).thenReturn(Optional.of(memberId));
+        when(memberAccountRepo.findIdsByMemberIdAndType(memberId, AccountType.SHARES)).thenReturn(List.of(LOW));
+        when(memberAccountRepo.lockById(LOW)).thenReturn(Optional.of(shares));
+
+        AccountLockService.AccountWithShares locked = accountLockService.lockWithSharesAccount("1000000001");
+
+        assertThat(locked.account()).isSameAs(shares);
+        assertThat(locked.sharesAccount()).isSameAs(shares);
+        verify(memberAccountRepo, times(1)).lockById(LOW);
+    }
+
+    // Shares accounts are created asynchronously after registration.
+    @Test
+    void missingSharesAccountIsAConflict() {
+        UUID memberId = UUID.randomUUID();
+        when(memberAccountRepo.findIdByAccountNumber("1000000002")).thenReturn(Optional.of(HIGH));
+        when(memberAccountRepo.findMemberIdById(HIGH)).thenReturn(Optional.of(memberId));
+        when(memberAccountRepo.findIdsByMemberIdAndType(memberId, AccountType.SHARES)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> accountLockService.lockWithSharesAccount("1000000002"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("This member's shares account hasn't been created yet");
+        verify(memberAccountRepo, never()).lockById(any());
     }
 
     @Test

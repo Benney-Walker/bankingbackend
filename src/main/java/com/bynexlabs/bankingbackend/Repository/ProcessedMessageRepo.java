@@ -21,4 +21,8 @@ public interface ProcessedMessageRepo extends JpaRepository<ProcessedMessage, Pr
             on conflict do nothing
             """, nativeQuery = true)
     int insertIfAbsent(@Param("messageId") String messageId, @Param("consumer") String consumer);
+
+    @Query(value = "select exists (select 1 from processed_messages where message_id = :messageId and consumer = :consumer)",
+            nativeQuery = true)
+    boolean isProcessed(@Param("messageId") String messageId, @Param("consumer") String consumer);
 }

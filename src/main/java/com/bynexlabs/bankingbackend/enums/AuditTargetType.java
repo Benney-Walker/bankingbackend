@@ -5,5 +5,7 @@ public enum AuditTargetType {
     /** target_id is the staff code, e.g. 900100. */
     STAFF,
     /** target_id is the member's UUID. KYC actions use the member, since there's one KYC record per member. */
-    MEMBER
+    MEMBER,
+    /** target_id names the settings group, e.g. "financial". */
+    SETTINGS
 }

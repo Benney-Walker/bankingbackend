@@ -32,4 +32,8 @@ public class GLAccount {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    /** Header accounts only group other accounts in reports; nothing is ever posted to them (V33). */
+    @Column(name = "is_header", nullable = false)
+    private boolean header;
 }

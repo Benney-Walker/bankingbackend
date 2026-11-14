@@ -285,6 +285,19 @@ public class StaffService {
         return ResponseEntity.ok().build();
     }
 
+    // --------------------HELPERS------------------------
+
+    public List<GrantedAuthority> getStaffRoles(String staffId) {
+        Staff staff = staffRepo.findByStaffId(staffId).orElse(null);
+        if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {
+            throw new UnauthorizedException("Staff account inactive or not found");
+        }
+
+        return staff.getRoles().stream().map(
+                role -> new SimpleGrantedAuthority(role.getRole().name())
+        ).collect(Collectors.toUnmodifiableList());
+    }
+
     private List<Roles> parseRoles(List<String> requestedRoles) {
         List<Roles> roles = new ArrayList<>();
         for (String requested : requestedRoles) {

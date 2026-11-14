@@ -17,6 +17,7 @@ import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
+import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.models.Branch;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.models.StaffRoles;
@@ -26,6 +27,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +43,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -64,15 +68,20 @@ public class StaffService {
         return staffRepo.findByStaffId(staffId).orElse(null);
     }
 
+    // Didn't apply pagination here. It's a deliberate action
+    // Will be applied later
     @Transactional(readOnly = true)
-    public PagedModel<StaffResponse> listStaff(int page, int size) {
-        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
-            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
+    public List<StaffResponse> listStaff(Staff activeStaff) {
+        List<Roles> roles = activeStaff.getRoles().stream().map(
+                StaffRoles::getRole
+        ).toList();
+
+        if (roles.contains(Roles.AGENT)) {
+            List<Staff> staffList = staffRepo.findByBranch_Id(activeStaff.getBranch().getId());
+            return staffList.stream().map(StaffResponse::from).collect(Collectors.toList());
         }
-        Page<StaffResponse> staff = staffRepo
-                .findAll(PageRequest.of(page, size, Sort.by("staffId")))
-                .map(StaffResponse::from);
-        return new PagedModel<>(staff);
+
+        return staffRepo.findAll().stream().map(StaffResponse::from).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -216,23 +225,6 @@ public class StaffService {
         if (others == 0) {
             throw new ConflictException("At least one active ADMINISTRATOR is required");
         }
-    }
-
-    private Staff findStaffOrThrow(String staffId) {
-        return staffRepo.findByStaffId(staffId)
-                .orElseThrow(() -> new ResourceNotFoundException("Staff not found"));
-    }
-
-    private LocalDate parseDateOfBirth(String dateOfBirth) {
-        try {
-            return LocalDate.parse(dateOfBirth, DateTimeFormatter.ISO_DATE);
-        } catch (DateTimeParseException e) {
-            throw new BadRequestException("Invalid date of birth; expected yyyy-MM-dd");
-        }
-    }
-
-    private void validatePhoneNumber(String phoneNumber) {
-        PhoneNumberRules.requireLocalFormat(phoneNumber);
     }
 
     @Transactional

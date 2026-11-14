@@ -112,6 +112,22 @@ public class AuthService {
         return jwtUtility.generateAccessToken(staffId, rolesList);
     }
 
+    public String refreshCollectorAccessToken(RefreshRequest refreshRequest) {
+
+        verifyRefreshToken(refreshRequest);
+
+        String collectorId = jwtUtility.extractUsername(refreshRequest.getRefreshToken());
+        Collector collector = collectorService.getCollector(collectorId);
+        // An inactive staff member must not be able to mint new access tokens.
+        if (collector == null || collector.getStaffStatus() != StaffStatus.ACTIVE) {
+            throw new UnauthorizedException("Invalid or expired refresh token");
+        }
+
+        List<String> rolesList = Collections.singletonList(collector.getRole().name());
+
+        return jwtUtility.generateAccessToken(collectorId, rolesList);
+    }
+
     // -----------------HELPER----------------
     private void verifyRefreshToken(RefreshRequest refreshRequest) {
         String refreshToken = refreshRequest.getRefreshToken();

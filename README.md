@@ -33,6 +33,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
 | Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
+| Collector payments | `COLLECTOR_FINALIZE_INTERVAL_MS` (optional, default `60000`): how often collector payments whose 10-minute window has closed are applied |
 | CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
 | API docs | `API_DOCS_ENABLED` (optional, default `false`): serve `/v3/api-docs` and Swagger UI. Leave off in production |
 
@@ -67,6 +68,7 @@ Access is set by URL in `SecurityConfig`:
 | `/api/admin/**`, `/actuator/**` | ADMINISTRATOR |
 | `/api/staff/v1/add-staff` | ADMINISTRATOR |
 | `/api/member/**`, `/api/staff/**` (other endpoints), `/api/transaction/**` | ADMINISTRATOR, AGENT |
+| `/api/collector/**` | COLLECTOR |
 | anything else | any logged-in staff member |
 
 | Method | Path | Purpose |
@@ -100,6 +102,17 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/transaction/v1/transfer` | Transfer between two savings or current accounts, same member or two members |
 | GET | `/api/transaction/v1/account/{accountNumber}` | Account balances, type, status and owner |
 | GET | `/api/transaction/v1/history/{accountNumber}?page=0&size=20` | The account's transactions, newest first, `size` 1–100. Includes transfers into it and first deposits that bought its shares |
+| GET | `/api/transaction/v1/withdrawal-requests?status=PENDING&page=0&size=20` | Collector withdrawal requests by status (`PENDING`, `APPROVED`, `REJECTED`, `PAID`), newest first |
+| POST | `/api/transaction/v1/withdrawal-requests/{requestId}/approve` | Approve a request once its 10-minute correction window has passed |
+| POST | `/api/transaction/v1/withdrawal-requests/{requestId}/reject` | Body `{ "reason" }` (required); same timing rule |
+| POST | `/api/transaction/v1/withdrawal-requests/{requestId}/pay` | Body `{ "idempotencyKey" }`. The member collects the cash at the office: records a normal withdrawal (fee, minimum balance, daily limit, SMS) and marks the request `PAID` |
+| GET | `/api/collector/v1/members` | Collector: members in their branch with their savings and shares accounts (`memberName`, `accounts[]` of `accountNumber` and `accountType`); no other details, no balances |
+| POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "recordedAt" }`. See "Collector recording" |
+| PUT | `/api/collector/v1/payments/{transactionId}` | Collector: correction within 10 minutes, body `{ "amount", "accountNumber" }` (either or both) |
+| GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
+| POST | `/api/collector/v1/withdrawal-requests` | Collector: body `{ "idempotencyKey", "accountNumber", "amount", "description", "recordedAt" }`, from the member's savings account |
+| PUT | `/api/collector/v1/withdrawal-requests/{requestId}` | Collector: correction within 10 minutes, as for payments |
+| GET | `/api/collector/v1/withdrawal-requests?page=0&size=20` | Collector: their own requests and each outcome |
 | GET | `/api/admin/ledger/v1/trial-balance` | Debit and credit totals and balance for every postable GL account; `balanced` should always be true |
 
 Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
@@ -154,6 +167,26 @@ Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` wit
 
 - **Actuator:** only `/actuator/health` and `/actuator/info` are exposed, and both need an ADMINISTRATOR access token (401 without a token, 403 for other roles). Health details (database, RabbitMQ, disk) are shown to that administrator. Every other actuator endpoint (env, beans, configprops, heapdump, …) is off.
 - **API docs:** set `API_DOCS_ENABLED=true` to serve the OpenAPI description at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`. Off by default. When on, these pages are public, so keep it off in production. In Swagger UI, use **Authorize** with an access token from login to try endpoints.
+
+## Collector recording
+
+Collectors take two kinds of payment in the field (owner decisions 2026-11-07 and 2026-11-14): **`SAVINGS`**, a deposit into the member's savings account, and **`SHARES`**, a share purchase into their shares account. One endpoint, `POST /api/collector/v1/payments`, with `type` in the body. They can also create **withdrawal requests** but never withdraw.
+
+**Rules:**
+- Any member in the collector's own branch (403 otherwise). The account and member must be ACTIVE (409).
+- The member's **first deposit must be made at the office** (409 until then).
+- `type` must match the account: SAVINGS → savings account, SHARES → shares account (400).
+- `idempotencyKey` is made once per payment by the app; re-sending it (retry or offline sync) returns the payment as it is now, even after a correction.
+
+**10-minute correction window:**
+1. A payment is saved straight away as `PENDING`; nothing changes on the account yet. The response says until when it can be corrected (`correctableUntil`).
+2. Within those 10 minutes, the collector who recorded it can change the amount or move it to the member's other account (savings ↔ shares, which changes it to a deposit or a share purchase): `PUT /api/collector/v1/payments/{id}`. Each change is saved in `collector_correction` with the before and after values, so the original is kept. After 10 minutes → 409.
+3. When the window closes, `CollectorPaymentFinalizer` (every `COLLECTOR_FINALIZE_INTERVAL_MS`, default 1 minute) applies it: balance up, journal posted (cash debited to **1015 Cash with Collectors**), status `COMPLETED`, member SMS. If the account was frozen or closed meanwhile, the payment is marked `FAILED` with `failureReason` instead, since the cash is already with the collector.
+4. **Offline records:** the app sends them only after their 10 minutes have passed, with `recordedAt` (device time). They're final: applied as soon as they arrive, no corrections. A `recordedAt` more than 5 minutes ahead of the server clock → 400.
+
+**Withdrawal requests:** a collector requests a withdrawal from a member's savings account. Creating it moves no money. The collector can correct it for 10 minutes (same rules as payments). After that an administrator or agent approves or rejects it (reason required); while the window is open it can't be reviewed (409). The member then collects the cash at the office, where `pay` records a normal withdrawal: the fee, minimum balance and daily limit are checked at that moment, and the member gets the withdrawal SMS. If the withdrawal is refused, the request stays `APPROVED`.
+
+**Day summary:** `GET /api/collector/v1/payments?date=` lists the collector's payments for the day with the number of payments and savings, shares and overall totals (failed payments not counted).
 
 ## Financial settings
 
@@ -261,6 +294,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V34 | `posting_rule`: which GL accounts each event debits and credits, seeded from standard practice |
 | V35 | `transaction.counterparty_account_id`, `fee_amount`, `share_amount`; journal lines can't be changed or deleted and transactions can't be deleted (triggers) |
 | V36 | Drops the old `collector` table: collectors are staff accounts now |
+| V37 | Collector recording: `transaction.channel`, `recorded_at`, `failure_reason`; `withdrawal_request`; append-only `collector_correction`; posting rules for collector deposits and share purchases (cash to 1015) |
 
 ## Status
 
@@ -280,7 +314,8 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Endpoint role permissions | URL rules in `SecurityConfig` (see API) |
 | Transaction SMS | Every office transaction texts the member (outbox + `transaction_sms_queue`, retries, dead-letter queue) |
 | Collector accounts | Staff with only the COLLECTOR role; own login and refresh endpoints; one active agent per branch (see "Collectors") |
-| Collector recording, loans | Not implemented |
+| Collector recording | Savings deposits and share purchases with the 10-minute correction window, offline records, day summary; withdrawal requests with approval and payment at the office |
+| Loans | Not implemented |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
 ### Completed increments
@@ -312,3 +347,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Financial settings and the ledger/transaction engine (PR #14):** editable `financial_settings` with mock values (V31, V32); working chart of accounts (V33) and posting rules as data (V34); `PostingService` builds balanced journal lines from the rules; deposits with the first-deposit share split, share purchases, withdrawals (fee on top, rounded to 2 decimals for percentages, minimum balance, daily limit) and transfers between savings/current accounts of the same or different members, at `/api/transaction` for ADMINISTRATOR and AGENT; account balance and history reads; trial balance at `/api/admin/ledger`. Journal lines and transactions are protected by triggers (V35).
 - **Transaction SMS (PR #14):** every transaction queues a member SMS with the new balance through the outbox; `TransactionSmsSender` sends it after commit with retries and a dead-letter queue (`transaction_sms_queue`, `transaction_sms_dead_letter_queue`).
 - **Collector auth (owner, master `5837a4f`; fixed on master `806660c`, 2026-11-14):** collectors are staff accounts with only the COLLECTOR role; `collector-login` / `refresh-collector-token` accept only collectors and the staff endpoints refuse them; one active agent per branch; add-staff is ADMINISTRATOR only. The empty `collector` table is dropped by V36.
+- **Collector recording (PR #14):** `/api/collector` for collectors: branch member list, SAVINGS/SHARES payments that stay PENDING for 10 minutes with corrections (`collector_correction`), applied by `CollectorPaymentFinalizer` against 1015 Cash with Collectors with the member SMS; offline records applied on arrival; day summary. Withdrawal requests: created and corrected by collectors, approved/rejected and paid at the office (`/api/transaction/v1/withdrawal-requests`). V37.

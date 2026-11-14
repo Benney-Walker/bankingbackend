@@ -1,5 +1,8 @@
 package com.bynexlabs.bankingbackend.Repository;
 
+import java.util.Collection;
+import com.bynexlabs.bankingbackend.enums.MembershipStatus;
+import com.bynexlabs.bankingbackend.enums.AccountStatus;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import jakarta.persistence.LockModeType;
@@ -26,6 +29,18 @@ public interface MemberAccountRepo extends JpaRepository<MemberAccount, UUID> {
 
     @Query("select a.id from MemberAccount a where a.member.id = :memberId and a.accountType = :type")
     List<UUID> findIdsByMemberIdAndType(@Param("memberId") UUID memberId, @Param("type") AccountType type);
+
+    /** Accounts collectors can record against: ACTIVE ones of ACTIVE members in a branch, by member name. */
+    @Query("""
+            select a from MemberAccount a join fetch a.member m
+            where m.branch.id = :branchId and m.membershipStatus = :memberStatus and a.status = :accountStatus
+              and a.accountType in :types
+            order by m.lastName, m.firstName, a.accountType
+            """)
+    List<MemberAccount> findForBranch(@Param("branchId") UUID branchId,
+                                      @Param("memberStatus") MembershipStatus memberStatus,
+                                      @Param("accountStatus") AccountStatus accountStatus,
+                                      @Param("types") Collection<AccountType> types);
 
     @Query("select a from MemberAccount a join fetch a.member where a.accountNumber = :accountNumber")
     Optional<MemberAccount> findWithMemberByAccountNumber(@Param("accountNumber") String accountNumber);

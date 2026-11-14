@@ -1,5 +1,7 @@
 package com.bynexlabs.bankingbackend.service;
 
+import java.util.UUID;
+import java.util.Collection;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffResponse;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffRolesRequest;
@@ -145,10 +147,16 @@ public class StaffService {
         Staff staff = findStaffOrThrow(staffId);
         Set<Roles> requested = EnumSet.noneOf(Roles.class);
         requested.addAll(parseRoles(request.getRoles()));
+        requireValidRoleCombination(requested);
 
         List<StaffRoles> currentRoles = staff.getRoles() == null ? new ArrayList<>() : staff.getRoles();
         Set<Roles> before = EnumSet.noneOf(Roles.class);
         currentRoles.stream().map(StaffRoles::getRole).forEach(before::add);
+        // Becoming the agent of a branch that already has an active one isn't allowed.
+        if (requested.contains(Roles.AGENT) && !before.contains(Roles.AGENT)
+                && staff.getStaffStatus() == StaffStatus.ACTIVE) {
+            requireNoOtherActiveAgent(staff.getBranch().getId(), staffId);
+        }
         boolean losesAdministrator = currentRoles.stream().anyMatch(r -> r.getRole() == Roles.ADMINISTRATOR)
                 && !requested.contains(Roles.ADMINISTRATOR);
         if (losesAdministrator) {
@@ -210,6 +218,10 @@ public class StaffService {
     public StaffResponse reactivateStaff(String staffId) {
         Staff staff = findStaffOrThrow(staffId);
         if (staff.getStaffStatus() != StaffStatus.ACTIVE) {
+            // An agent can't come back while another agent is active in the same branch.
+            if (hasRole(staff, Roles.AGENT)) {
+                requireNoOtherActiveAgent(staff.getBranch().getId(), staffId);
+            }
             staff.setStaffStatus(StaffStatus.ACTIVE);
             staff.setUpdatedAt(LocalDateTime.now());
             staffRepo.save(staff);
@@ -227,12 +239,37 @@ public class StaffService {
         }
     }
 
+    // Owner rule (2026-11-14): collectors are staff accounts with only the COLLECTOR role; it
+    // can't be combined with ADMINISTRATOR or AGENT.
+    static void requireValidRoleCombination(Collection<Roles> roles) {
+        if (roles.contains(Roles.COLLECTOR) && roles.size() > 1) {
+            throw new BadRequestException("COLLECTOR can't be combined with other roles");
+        }
+    }
+
+    // Owner rule (2026-11-14): a branch has at most one active agent (any number of collectors).
+    // Locks the branch row first so two concurrent changes can't both pass the check.
+    private void requireNoOtherActiveAgent(UUID branchId, String staffId) {
+        Branch branch = branchRepo.lockById(branchId)
+                .orElseThrow(() -> new ResourceNotFoundException("Branch not found"));
+        long agents = staffRolesRepo.countOtherStaffInBranchWithRoleAndStatus(
+                Roles.AGENT, StaffStatus.ACTIVE, branch.getId(), staffId);
+        if (agents > 0) {
+            throw new ConflictException("Branch " + branch.getName() + " already has an active agent");
+        }
+    }
+
+    private static boolean hasRole(Staff staff, Roles role) {
+        return staff.getRoles() != null && staff.getRoles().stream().anyMatch(r -> r.getRole() == role);
+    }
+
     @Transactional
     public ResponseEntity<?> addNewStaff(StaffDetails staffDetails){
         // Validate the input before touching the database or consuming a staff ID.
         LocalDate dob = parseDateOfBirth(staffDetails.getDateOfBirth());
         validatePhoneNumber(staffDetails.getPhoneNumber());
         List<Roles> roles = parseRoles(staffDetails.getRoles());
+        requireValidRoleCombination(roles);
 
         if (staffRepo.existsByFirstNameAndLastNameAndDateOfBirth(
                         staffDetails.getFirstName(), staffDetails.getLastName(), dob)) {
@@ -249,6 +286,10 @@ public class StaffService {
 
         Branch branch = branchRepo.findById(staffDetails.getBranchId())
                 .orElseThrow(()-> new ConflictException("Branch not found"));
+        if (roles.contains(Roles.AGENT)) {
+            // A new staff member has no ID yet, so no existing staff is excluded.
+            requireNoOtherActiveAgent(branch.getId(), "");
+        }
 
         String newStaffId = idGenerator.generateId(Id_Type.STAFF_ID);
         String hashedPassword = bCryptPasswordEncoder.encode(staffDetails.getPassword());

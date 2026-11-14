@@ -32,6 +32,9 @@ import java.util.Optional;
 
 import com.bynexlabs.bankingbackend.enums.AuditAction;
 import com.bynexlabs.bankingbackend.enums.AuditTargetType;
+import com.bynexlabs.bankingbackend.Repository.BranchRepo;
+import com.bynexlabs.bankingbackend.models.Branch;
+import java.util.UUID;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,6 +58,9 @@ class StaffManagementServiceTest {
     private AuditLogService auditLogService;
 
     @Mock
+    private BranchRepo branchRepo;
+
+    @Mock
     private StaffRolesRepo staffRolesRepo;
 
     @Mock
@@ -64,7 +70,7 @@ class StaffManagementServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo);
     }
 
     private Staff existingStaff() {
@@ -81,6 +87,7 @@ class StaffManagementServiceTest {
                 .staffStatus(StaffStatus.ACTIVE)
                 .createdAt(LocalDateTime.of(2026, 1, 5, 9, 0))
                 .updatedAt(LocalDateTime.of(2026, 1, 5, 9, 0))
+                .branch(Branch.builder().id(UUID.randomUUID()).name("Tarkwa").build())
                 .build();
         StaffRoles agent = new StaffRoles();
         agent.setStaff(staff);

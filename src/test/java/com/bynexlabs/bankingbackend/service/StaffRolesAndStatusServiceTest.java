@@ -27,6 +27,9 @@ import java.util.Optional;
 
 import com.bynexlabs.bankingbackend.enums.AuditAction;
 import com.bynexlabs.bankingbackend.enums.AuditTargetType;
+import com.bynexlabs.bankingbackend.Repository.BranchRepo;
+import com.bynexlabs.bankingbackend.models.Branch;
+import java.util.UUID;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,6 +60,11 @@ class StaffRolesAndStatusServiceTest {
     @Mock
     private IdGenerator idGenerator;
 
+    @Mock
+    private BranchRepo branchRepo;
+
+    private final Branch branch = Branch.builder().id(UUID.randomUUID()).name("Tarkwa").build();
+
     @Captor
     private ArgumentCaptor<List<StaffRoles>> rows;
 
@@ -64,7 +72,7 @@ class StaffRolesAndStatusServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo);
     }
 
     private Staff staff(String staffId, StaffStatus status, Roles... roles) {
@@ -74,6 +82,7 @@ class StaffRolesAndStatusServiceTest {
                 .lastName("Owusu")
                 .staffStatus(status)
                 .updatedAt(LocalDateTime.of(2026, 1, 5, 9, 0))
+                .branch(branch)
                 .build();
         List<StaffRoles> staffRoles = new ArrayList<>();
         for (Roles role : roles) {
@@ -187,20 +196,77 @@ class StaffRolesAndStatusServiceTest {
 
     @Test
     void writesOnlyTheDifferenceBetweenOldAndNewRoles() {
-        Staff target = staff(TARGET, StaffStatus.ACTIVE, Roles.AGENT, Roles.COLLECTOR);
-        StaffRoles collectorRow = target.getRoles().get(1);
+        Staff target = staff(TARGET, StaffStatus.ACTIVE, Roles.ADMINISTRATOR, Roles.AGENT);
+        StaffRoles administratorRow = target.getRoles().get(0);
         given(target);
+        when(staffRolesRepo.countOtherStaffWithRoleAndStatus(Roles.ADMINISTRATOR, StaffStatus.ACTIVE, TARGET))
+                .thenReturn(1L);
 
         StaffResponse response = staffService.updateStaffRoles(
-                TARGET, new StaffRolesRequest(List.of("agent", "ADMINISTRATOR")), ACTING_ADMIN);
+                TARGET, new StaffRolesRequest(List.of("agent")), ACTING_ADMIN);
 
-        assertThat(response.getRoles()).containsExactlyInAnyOrder(Roles.AGENT, Roles.ADMINISTRATOR);
+        assertThat(response.getRoles()).containsExactly(Roles.AGENT);
 
         verify(staffRolesRepo).deleteAll(rows.capture());
-        assertThat(rows.getValue()).containsExactly(collectorRow);
+        assertThat(rows.getValue()).containsExactly(administratorRow);
 
         verify(staffRolesRepo).saveAll(rows.capture());
-        assertThat(rows.getValue()).extracting(StaffRoles::getRole).containsExactly(Roles.ADMINISTRATOR);
-        assertThat(rows.getValue()).allSatisfy(row -> assertThat(row.getStaff()).isSameAs(target));
+        assertThat(rows.getValue()).isEmpty();
+    }
+
+    // Owner rule (2026-11-14): COLLECTOR is exclusive.
+    @Test
+    void collectorRoleCantBeCombinedWithAnother() {
+        given(staff(TARGET, StaffStatus.ACTIVE, Roles.COLLECTOR));
+
+        assertThatThrownBy(() -> staffService.updateStaffRoles(
+                TARGET, new StaffRolesRequest(List.of("COLLECTOR", "AGENT")), ACTING_ADMIN))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("COLLECTOR can't be combined with other roles");
+        verify(staffRolesRepo, never()).saveAll(any());
+    }
+
+    // Owner rule (2026-11-14): one active agent per branch.
+    @Test
+    void cantBecomeAgentWhereTheBranchAlreadyHasOne() {
+        given(staff(TARGET, StaffStatus.ACTIVE, Roles.COLLECTOR));
+        when(branchRepo.lockById(branch.getId())).thenReturn(Optional.of(branch));
+        when(staffRolesRepo.countOtherStaffInBranchWithRoleAndStatus(Roles.AGENT, StaffStatus.ACTIVE, branch.getId(), TARGET))
+                .thenReturn(1L);
+
+        assertThatThrownBy(() -> staffService.updateStaffRoles(
+                TARGET, new StaffRolesRequest(List.of("AGENT")), ACTING_ADMIN))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Branch Tarkwa already has an active agent");
+        verify(staffRolesRepo, never()).saveAll(any());
+    }
+
+    @Test
+    void collectorCanBecomeAgentOfABranchWithoutOne() {
+        Staff target = staff(TARGET, StaffStatus.ACTIVE, Roles.COLLECTOR);
+        given(target);
+        when(branchRepo.lockById(branch.getId())).thenReturn(Optional.of(branch));
+        when(staffRolesRepo.countOtherStaffInBranchWithRoleAndStatus(Roles.AGENT, StaffStatus.ACTIVE, branch.getId(), TARGET))
+                .thenReturn(0L);
+
+        StaffResponse response = staffService.updateStaffRoles(TARGET, new StaffRolesRequest(List.of("AGENT")), ACTING_ADMIN);
+
+        assertThat(response.getRoles()).containsExactly(Roles.AGENT);
+    }
+
+    // Deactivating an agent frees the branch; bringing them back is refused while another is active.
+    @Test
+    void agentCantBeReactivatedWhileAnotherIsActiveInTheBranch() {
+        Staff agent = staff(TARGET, StaffStatus.INACTIVE, Roles.AGENT);
+        given(agent);
+        when(branchRepo.lockById(branch.getId())).thenReturn(Optional.of(branch));
+        when(staffRolesRepo.countOtherStaffInBranchWithRoleAndStatus(Roles.AGENT, StaffStatus.ACTIVE, branch.getId(), TARGET))
+                .thenReturn(1L);
+
+        assertThatThrownBy(() -> staffService.reactivateStaff(TARGET))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Branch Tarkwa already has an active agent");
+        assertThat(agent.getStaffStatus()).isEqualTo(StaffStatus.INACTIVE);
+        verify(staffRepo, never()).save(any());
     }
 }

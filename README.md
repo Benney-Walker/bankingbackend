@@ -61,11 +61,13 @@ All endpoints except `/api/auth/**` require `Authorization: Bearer <access token
 
 | Method | Path | Roles | Purpose |
 |---|---|---|---|
-| POST | `/api/auth/v1/login` | Public | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
-| POST | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body; returns `{ "authToken": ... }` |
+| POST | `/api/auth/v1/staff-login` | Public | Desktop login with `staffId` and `password`; returns `staffName`, `roles`, `authToken`, `refreshToken`. Collector accounts → 403 |
+| POST | `/api/auth/v1/collector-login` | Public | Collector app login, same body and response. Only COLLECTOR accounts (others → 403). See "Collectors" |
+| POST | `/api/auth/v1/refresh-staff-token` | Public | Body `{ "refreshToken" }`; returns the new access token as a plain string. Collector, inactive or unknown accounts → 401 |
+| POST | `/api/auth/v1/refresh-collector-token` | Public | The same for collectors; non-collector, inactive or unknown accounts → 401 |
 | POST | `/api/auth/v1/password-reset/request` | Public | Body `{ "staffId" }`. If it's an ACTIVE staff member, a 6-digit code is texted to their phone (Vynfy). At most one code per staff ID per minute; repeats within the minute send nothing. Always returns the same 200 message, whether or not the staff ID exists |
 | POST | `/api/auth/v1/password-reset/confirm` | Public | Body `{ "staffId", "code", "newPassword" }`. Code valid 10 minutes, 3 wrong attempts allowed, then a new code is needed. Password 8–72 characters. Wrong/expired code → 400 `Invalid or expired reset code` |
-| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR`; password 8–72 characters |
+| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member or collector in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`. `COLLECTOR` can't be combined with another role (400); a branch can have only one active agent (409). Password 8–72 characters |
 | GET | `/api/staff/v1/all-staff?page=0&size=20` | ADMINISTRATOR | Staff list sorted by staff ID; `size` 1–100. Returns `{ "content": [staff…], "page": { "size", "number", "totalElements", "totalPages" } }` |
 | GET | `/api/staff/v1/staff-details/{staffId}` | ADMINISTRATOR | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | ADMINISTRATOR | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress`. Same validation and duplicate checks as add-staff, ignoring the staff member being edited. Returns the updated staff |
@@ -111,6 +113,15 @@ Every error uses the same JSON body:
 | 500 | Anything unexpected; the body never contains internal details, which are logged instead |
 
 Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
+
+## Collectors
+
+Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` with a branch and **only** the `COLLECTOR` role. They're created with `add-staff` (ADMINISTRATOR only) and get a staff ID from the same counter as everyone else. The separate `collector` table and entity were removed; the empty table is dropped by a later migration.
+
+- **Sign-in:** the collector app uses `collector-login` and `refresh-collector-token`, which accept only collector accounts; the desktop app's `staff-login` and `refresh-staff-token` refuse them. Wrong passwords and inactive accounts get 401 on both.
+- **Requests:** a collector's access token works like any staff token. Roles are read from the database on every request, so deactivating a collector cuts them off immediately.
+- **Branch rules:** a branch has at most **one active agent** and any number of collectors. Checked when adding staff, changing roles and reactivating (409); the branch row is locked during the check so two changes can't both pass. Deactivating an agent frees the branch for a new one.
+- **Roles:** `COLLECTOR` can't be combined with `ADMINISTRATOR` or `AGENT` (400) on add-staff and update-roles.
 
 ## RabbitMQ messaging
 

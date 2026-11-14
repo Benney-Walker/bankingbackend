@@ -12,6 +12,7 @@ import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.AuditAction;
 import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
+import com.bynexlabs.bankingbackend.models.Branch;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.Staff;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,11 @@ class MemberServiceTest {
     @Mock
     private OutboxService outboxService;
 
+    @Mock
+    private BranchService branchService;
+
+    private final Branch branch = Branch.builder().id(UUID.randomUUID()).name("Tarkwa").build();
+
     @InjectMocks
     private MemberService memberService;
 
@@ -63,6 +69,7 @@ class MemberServiceTest {
                 .residentialAddress("Tarkwa")
                 .occupation("Trader")
                 .accountType(accountType)
+                .branchId(branch.getId())
                 .build();
     }
 
@@ -124,6 +131,7 @@ class MemberServiceTest {
             member.setId(memberId);
             return member;
         });
+        when(branchService.getBranchDetails(branch.getId())).thenReturn(branch);
 
         ResponseEntity<?> response = memberService.registerNewMember(registration("current"), registrar);
 
@@ -132,6 +140,7 @@ class MemberServiceTest {
 
         ArgumentCaptor<Member> savedMember = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).save(savedMember.capture());
+        assertThat(savedMember.getValue().getBranch()).isSameAs(branch);
         assertThat(savedMember.getValue().getMembershipStatus()).isEqualTo(MembershipStatus.PENDING);
         assertThat(savedMember.getValue().getDateOfBirth()).isEqualTo(LocalDate.of(1990, 5, 14));
         assertThat(savedMember.getValue().getRegisteredBy()).isSameAs(registrar);

@@ -22,8 +22,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Reads and updates the credit union's financial settings (V31): the mandatory first-deposit
- * share amount and the withdrawal rules. They're data, not code, so administrators can change
+ * Reads and updates the credit union's financial settings (V31, V32): the mandatory first-deposit
+ * share amount, the minimum first deposit and the withdrawal rules. They're data, not code, so administrators can change
  * them from the desktop app (owner decision 2026-11-14). The seeded values are mock values.
  *
  * Money movements should read the settings inside their own transaction, so a deposit or
@@ -61,6 +61,10 @@ public class FinancialSettingsService {
      */
     @Transactional
     public FinancialSettingsResponse updateSettings(FinancialSettingsUpdateRequest request, String editorStaffId) {
+        // The share purchase comes out of the first deposit, so the minimum has to cover it.
+        if (request.getMinFirstDeposit().compareTo(request.getInitialShareAmount()) < 0) {
+            throw new BadRequestException("The minimum first deposit can't be less than the initial share amount");
+        }
         if (request.getWithdrawalFeeType() == WithdrawalFeeType.PERCENTAGE
                 && request.getWithdrawalFeeValue().compareTo(MAX_PERCENTAGE) > 0) {
             throw new BadRequestException("A percentage withdrawal fee can't be more than 100");
@@ -74,6 +78,7 @@ public class FinancialSettingsService {
 
         List<String> changes = new ArrayList<>();
         track(changes, "initialShareAmount", settings.getInitialShareAmount(), request.getInitialShareAmount());
+        track(changes, "minFirstDeposit", settings.getMinFirstDeposit(), request.getMinFirstDeposit());
         track(changes, "withdrawalMinBalance", settings.getWithdrawalMinBalance(), request.getWithdrawalMinBalance());
         track(changes, "withdrawalDailyLimit", settings.getWithdrawalDailyLimit(), request.getWithdrawalDailyLimit());
         track(changes, "withdrawalFeeEnabled", settings.isWithdrawalFeeEnabled(), request.getWithdrawalFeeEnabled());
@@ -86,6 +91,7 @@ public class FinancialSettingsService {
         }
 
         settings.setInitialShareAmount(request.getInitialShareAmount());
+        settings.setMinFirstDeposit(request.getMinFirstDeposit());
         settings.setWithdrawalMinBalance(request.getWithdrawalMinBalance());
         settings.setWithdrawalDailyLimit(request.getWithdrawalDailyLimit());
         settings.setWithdrawalFeeEnabled(request.getWithdrawalFeeEnabled());

@@ -5,6 +5,7 @@ import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
 import com.bynexlabs.bankingbackend.exception.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.enums.AccountStatus;
+import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +65,44 @@ public class AccountLockService {
         requireCanTransact(from);
         requireCanTransact(to);
         return List.of(from, to);
+    }
+
+    /** An account and its member's shares account, locked together. */
+    public record AccountWithShares(MemberAccount account, MemberAccount sharesAccount) {
+    }
+
+    /**
+     * Locks an account and its member's shares account, in ascending ID order like a transfer.
+     * Deposits and share purchases lock the shares account even when they don't move money into
+     * it, so two first deposits for the same member can't both run at once. When the given
+     * account is the shares account, it is locked once.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AccountWithShares lockWithSharesAccount(String accountNumber) {
+        UUID accountId = resolveId(accountNumber);
+        UUID memberId = memberAccountRepo.findMemberIdById(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+        List<UUID> sharesIds = memberAccountRepo.findIdsByMemberIdAndType(memberId, AccountType.SHARES);
+        if (sharesIds.size() != 1) {
+            throw new ConflictException(sharesIds.isEmpty()
+                    ? "This member's shares account hasn't been created yet"
+                    : "This member has more than one shares account; it needs fixing before money can move");
+        }
+        UUID sharesId = sharesIds.get(0);
+
+        if (sharesId.equals(accountId)) {
+            MemberAccount shares = lock(accountId);
+            requireCanTransact(shares);
+            return new AccountWithShares(shares, shares);
+        }
+        boolean accountFirst = accountId.compareTo(sharesId) < 0;
+        MemberAccount first = lock(accountFirst ? accountId : sharesId);
+        MemberAccount second = lock(accountFirst ? sharesId : accountId);
+        MemberAccount account = accountFirst ? first : second;
+        MemberAccount shares = accountFirst ? second : first;
+        requireCanTransact(account);
+        requireCanTransact(shares);
+        return new AccountWithShares(account, shares);
     }
 
     private MemberAccount lock(UUID accountId) {

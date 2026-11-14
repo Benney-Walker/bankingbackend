@@ -53,4 +53,22 @@ public class Transaction {
 
     @Column(name = "posted_at")
     private LocalDateTime postedAt;
+
+    /**
+     * The other member account involved (V35): a transfer's destination, or the shares account
+     * that receives the share part of a first deposit. Null for single-account transactions.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "counterparty_account_id")
+    private MemberAccount counterpartyAccount;
+
+    /** Withdrawal fee, taken from the account on top of the amount. */
+    @Builder.Default
+    @Column(name = "fee_amount", nullable = false, precision = 19, scale = 4)
+    private BigDecimal feeAmount = BigDecimal.ZERO;
+
+    /** Share part of a first deposit; the rest of the amount goes to memberAccount. */
+    @Builder.Default
+    @Column(name = "share_amount", nullable = false, precision = 19, scale = 4)
+    private BigDecimal shareAmount = BigDecimal.ZERO;
 }

@@ -57,31 +57,47 @@ There is no bootstrap for the first administrator yet (roadmap increment 1.4), a
 
 ## API (current)
 
-All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Only ACTIVE staff can log in, refresh a token or use one. On every request the token's owner is loaded from the database and their current status and roles decide access, so deactivation and role changes take effect immediately; the `roles` claim inside the token is informational only. Each endpoint declares the roles allowed to call it with `@PreAuthorize` (owner-approved, 2026-11-06); any other role gets 403. Every new endpoint must declare its roles too, and `EndpointRoleRulesTest` fails if one doesn't.
+All endpoints except `/api/auth/**` require `Authorization: Bearer <access token>`. Only ACTIVE staff can log in, refresh a token or use one. On every request the token's owner is loaded from the database and their current status and roles decide access, so deactivation and role changes take effect immediately; the `roles` claim inside the token is informational only.
 
-| Method | Path | Roles | Purpose |
-|---|---|---|---|
-| POST | `/api/auth/v1/login` | Public | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
-| POST | `/api/auth/v1/refresh-token` | Public | New access token from `{ "refreshToken": ... }` in the request body; returns `{ "authToken": ... }` |
-| POST | `/api/auth/v1/password-reset/request` | Public | Body `{ "staffId" }`. If it's an ACTIVE staff member, a 6-digit code is texted to their phone (Vynfy). At most one code per staff ID per minute; repeats within the minute send nothing. Always returns the same 200 message, whether or not the staff ID exists |
-| POST | `/api/auth/v1/password-reset/confirm` | Public | Body `{ "staffId", "code", "newPassword" }`. Code valid 10 minutes, 3 wrong attempts allowed, then a new code is needed. Password 8–72 characters. Wrong/expired code → 400 `Invalid or expired reset code` |
-| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR | Create a staff member; roles are `ADMINISTRATOR`, `AGENT`, `COLLECTOR`; password 8–72 characters |
-| GET | `/api/staff/v1/all-staff?page=0&size=20` | ADMINISTRATOR | Staff list sorted by staff ID; `size` 1–100. Returns `{ "content": [staff…], "page": { "size", "number", "totalElements", "totalPages" } }` |
-| GET | `/api/staff/v1/staff-details/{staffId}` | ADMINISTRATOR | One staff member (404 if unknown) |
-| PUT | `/api/staff/v1/update-staff/{staffId}` | ADMINISTRATOR | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress`. Same validation and duplicate checks as add-staff, ignoring the staff member being edited. Returns the updated staff |
-| PUT | `/api/staff/v1/update-roles/{staffId}` | ADMINISTRATOR | Body `{ "roles": ["AGENT", …] }` is the complete new role set. Takes effect on the staff member's next request. Returns the updated staff |
-| POST | `/api/staff/v1/deactivate/{staffId}` | ADMINISTRATOR | Set status `INACTIVE`; blocks the staff member's API access immediately. Already inactive → no change |
-| POST | `/api/staff/v1/reactivate/{staffId}` | ADMINISTRATOR | Set status `ACTIVE`. Already active → no change |
-| GET | `/api/member/v1/search-members?query=&page=0&size=20` | ADMINISTRATOR, AGENT, COLLECTOR | Members sorted by last then first name; `query` (optional) matches part of a first, middle, last or full name, part of a phone number, or an exact account number. `size` 1–100. Same paged shape as the staff list; each item has `memberId`, names, `phoneNumber`, `membershipStatus` |
-| GET | `/api/member/v1/member-details/{memberId}` | ADMINISTRATOR, AGENT, COLLECTOR | Member details plus `registeredByStaffId` (null for members registered before V20) and `accounts` (`accountNumber`, `accountType`, `status`; no balances). 404 if unknown |
-| PUT | `/api/member/v1/update-member/{memberId}` | ADMINISTRATOR, AGENT | Body `{ "phoneNumber", "residentialAddress", "occupation" }`, the only member fields that can change after registration; everything else is locked. Phone must be unique among members (409) |
-| POST | `/api/member/v1/add-member` | ADMINISTRATOR, AGENT | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance. `accountType` other than `SAVINGS`/`CURRENT` (including `SHARES`), a `dob` not in yyyy-MM-dd, or a `phoneNumber` that isn't 10 digits starting with 0 → 400. Accounts are created asynchronously, normally within a moment |
-| POST | `/api/member/v1/kyc-document-upload` | ADMINISTRATOR, AGENT | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`, case-insensitive), `idNumber` (the number on the document; required, stored trimmed and upper-cased, unique across members → 409 if another member has it; for `ECOWAS_CARD`, the Ghana Card, it must look like `GHA-123456789-0`, else 400; no format rule for `VOTER_CARD` yet), `file` (**JPEG or PNG, at most 5 MB**, judged by the file's content, not its name). Stores the document in the private R2 bucket, creates a `PENDING` KYC record and queues automated verification. One KYC record per member: a second upload → 409, except after a manual rejection, when **only the staff member who registered the member** may upload a replacement (anyone else → 403). The new document replaces the old one (the old file is deleted from R2 after commit), the record goes back to `PENDING` and automated verification runs again. Unknown document type, non-JPEG/PNG or empty file → 400; over 5 MB → 413; unknown member → 404; all before anything is uploaded |
-| GET | `/api/member/v1/kyc-reviews?status=MANUAL_REVIEW&page=0&size=20` | ADMINISTRATOR, AGENT | KYC records with the given status (default `MANUAL_REVIEW`; also `PENDING`, `REJECTED`, `VERIFIED`), oldest first, `size` 1–100. **Administrators see every member; agents only members they registered.** Each item: `memberId`, names, `documentType`, `idNumber`, `status`, `reason`, `verificationMethod`, `reviewedByStaffId`, `registeredByStaffId`, `submittedAt`, `verifiedAt` |
-| GET | `/api/member/v1/kyc-details/{memberId}` | ADMINISTRATOR, AGENT | One member's KYC record (same fields). Agent viewing a member they didn't register → 403; no KYC → 404 |
-| GET | `/api/member/v1/kyc-document/{memberId}` | ADMINISTRATOR, AGENT | The document image itself (`image/jpeg` or `image/png`), streamed from the private bucket by the backend; never a public or pre-signed URL. Sent with `Cache-Control: no-store`. Same visibility rules; each view is logged |
-| POST | `/api/member/v1/manual-kyc-approval/{memberId}` | ADMINISTRATOR | Mark KYC verified (method `MANUAL`, approving administrator recorded) and activate the member and their accounts. Only for a document in `PENDING` or `MANUAL_REVIEW`. 404 unknown member; 409 if there's no submission or it's already `VERIFIED`/`REJECTED` |
-| POST | `/api/member/v1/manual-kyc-rejection/{memberId}` | ADMINISTRATOR | Body `{ "reason" }` (required). Marks the document `REJECTED` with the reason and the reviewing administrator; the member stays `PENDING` and accounts inactive until a replacement is uploaded and verified. Same status rules and errors as approval |
+Access is set by URL in `SecurityConfig`:
+
+| Path | Roles |
+|---|---|
+| `/api/auth/**` | Public |
+| `/api/admin/**`, `/actuator/**` | ADMINISTRATOR |
+| `/api/member/**`, `/api/staff/**`, `/api/transaction/**` | ADMINISTRATOR, AGENT |
+| anything else | any logged-in staff member |
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/auth/v1/login` | Staff login with `staffId` and `password`; returns access and refresh tokens and roles |
+| POST | `/api/auth/v1/refresh-token` | Body `{ "refreshToken" }`; returns the new access token as a plain string |
+| POST | `/api/auth/v1/password-reset/request-code` | Body `{ "staffId" }`. Texts a 6-digit code (Vynfy) to an ACTIVE staff member. Unknown or inactive staff ID → 400; again within a minute → 409; SMS failure → 500 |
+| POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
+| PUT | `/api/auth/v1/password-reset/new-password` | Body `{ "newPassword", "resetToken" }`. Password 8–72 characters, can't be the current one (409). Invalid reset token → 401 |
+| POST | `/api/staff/v1/add-staff` | Create a staff member in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`; password 8–72 characters |
+| GET | `/api/staff/v1/all-staff` | Staff list: an agent sees their own branch's staff, an administrator everyone. Not paginated yet |
+| GET | `/api/staff/v1/staff-details/{staffId}` | One staff member (404 if unknown) |
+| PUT | `/api/staff/v1/update-staff/{staffId}` | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress` |
+| PUT | `/api/staff/v1/update-roles/{staffId}` | Body `{ "roles": ["AGENT", …] }`, the complete new role set; takes effect on the staff member's next request |
+| POST | `/api/staff/v1/deactivate/{staffId}` | Set status `INACTIVE`; blocks API access immediately |
+| POST | `/api/staff/v1/reactivate/{staffId}` | Set status `ACTIVE` |
+| GET | `/api/member/v1/member-details/{memberId}` | Member details, `registeredByStaffId` and `accounts` (`accountNumber`, `accountType`, `status`; no balances) |
+| POST | `/api/member/v1/add-member` | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance |
+| POST | `/api/member/v1/kyc-document-upload` | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `idNumber` (unique; Ghana Card format `GHA-123456789-0`), `file` (**JPEG or PNG, at most 5 MB**). Creates a `PENDING` KYC record and queues automated verification. One KYC record per member; after a manual rejection only the staff member who registered the member may upload a replacement |
+| GET | `/api/member/v1/kyc-document/{memberId}` | The document image, streamed from the private bucket (`Cache-Control: no-store`); each view is logged |
+| PUT | `/api/admin/v1/update-member/{memberId}` | Body `{ "phoneNumber", "residentialAddress", "occupation" }`, the only member fields that can change after registration |
+| GET | `/api/admin/v1/kyc-reviews?status=MANUAL_REVIEW&page=0&size=20` | KYC records with the given status, oldest first |
+| GET | `/api/admin/v1/kyc-details/{memberId}` | One member's KYC record |
+| POST | `/api/admin/v1/manual-kyc-approval/{memberId}` | Mark KYC verified and activate the member and their accounts |
+| POST | `/api/admin/v1/manual-kyc-rejection/{memberId}` | Body `{ "reason" }` (required). Marks the document `REJECTED`; the member stays `PENDING` |
+| POST | `/api/transaction/v1/deposit` | Cash deposit into a savings or current account. See "Transactions and ledger" |
+| POST | `/api/transaction/v1/share-purchase` | Cash share purchase into the member's shares account |
+| POST | `/api/transaction/v1/withdrawal` | Cash withdrawal from a savings or current account; fee on top |
+| POST | `/api/transaction/v1/transfer` | Transfer between two savings or current accounts, same member or two members |
+| GET | `/api/transaction/v1/account/{accountNumber}` | Account balances, type, status and owner |
+| GET | `/api/transaction/v1/history/{accountNumber}?page=0&size=20` | The account's transactions, newest first, `size` 1–100. Includes transfers into it and first deposits that bought its shares |
+| GET | `/api/admin/ledger/v1/trial-balance` | Debit and credit totals and balance for every postable GL account; `balanced` should always be true |
 
 Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
 
@@ -110,7 +126,7 @@ Every error uses the same JSON body:
 | 409 | Duplicate staff (name + date of birth, phone, email), duplicate member phone, a second KYC submission for the same member; an administrator deactivating themselves or removing their own `ADMINISTRATOR` role; any change that would leave no active administrator |
 | 500 | Anything unexpected; the body never contains internal details, which are logged instead |
 
-Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException` or `UnauthorizedException` (all extend `ApiException` in `Utility`), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
+Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException`, `UnauthorizedException`, `InternalServerError` and others (all extend `ApiException` in the `exception` package), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
 
 ## RabbitMQ messaging
 
@@ -134,18 +150,47 @@ Settings the credit union changes without a code change live in the `financial_s
 | Setting | Meaning | Mock value |
 |---|---|---|
 | `initialShareAmount` | Fixed amount (GHS) taken from a member's first deposit for the mandatory share purchase | 50.00 |
+| `minFirstDeposit` | A member's first deposit must be at least this (GHS); can't be below `initialShareAmount` | 100.00 |
 | `withdrawalMinBalance` | Balance an account must keep after a withdrawal (GHS) | 20.00 |
 | `withdrawalDailyLimit` | Most that can be withdrawn from one account per day (GHS) | 10,000.00 |
 | `withdrawalFeeEnabled` | Whether the withdrawal fee is charged | true |
 | `withdrawalFeeType` | `FLAT` (GHS per withdrawal) or `PERCENTAGE` (of the amount withdrawn) | FLAT |
-| `withdrawalFeeValue` | GHS for `FLAT`; percent for `PERCENTAGE` (1.5 = 1.5%, at most 100) | 2.00 |
+| `withdrawalFeeValue` | GHS for `FLAT`; percent for `PERCENTAGE` (1.5 = 1.5%, at most 100). A percentage fee is rounded to 2 decimal places, half up | 2.00 |
 
 The mock values are placeholders until the credit union gives its real ones.
 
 - **Updating:** `FinancialSettingsService.updateSettings` replaces all values at once. The request carries the `version` the client last read; if someone else saved in between, it's rejected with 409 so they can reload. Saving unchanged values does nothing.
 - **Validation:** amounts can't be negative, the daily limit must be above zero, at most 4 decimal places, and a percentage fee can't exceed 100. The database enforces the same rules.
 - **History:** each change is recorded in the audit log (`FINANCIAL_SETTINGS_UPDATED`) with old and new values and who made it.
-- No endpoint yet; the desktop app's settings screen will need one. Nothing reads these settings yet: deposits, the first-deposit share purchase and withdrawals will use them when they're built.
+- No endpoint yet; the desktop app's settings screen will need one. Deposits, first deposits and withdrawals read the settings inside their own transaction.
+
+## Transactions and ledger
+
+Administrators and agents record money movements at the office through `/api/transaction`. Collector recording comes later with the collector flow (10-minute correction window, member SMS).
+
+**Request body** for deposit, share purchase and withdrawal: `{ "idempotencyKey", "accountNumber", "amount", "description" }`. Transfer: `{ "idempotencyKey", "fromAccountNumber", "toAccountNumber", "amount", "description" }`. The app generates `idempotencyKey` (e.g. a UUID) once per user action and re-sends it unchanged on retries: the same key with the same request returns the recorded transaction without moving money again; the same key with a different request → 409. Amounts must be positive with at most 4 decimal places.
+
+**Rules:**
+- Accounts and their members must be `ACTIVE` (after KYC) → otherwise 409.
+- **Deposit:** savings or current accounts only. A member's **first deposit** must be at least `minFirstDeposit` (400 otherwise); `initialShareAmount` of it goes to their shares account and the rest to the chosen account. It's one transaction with `shareAmount` and `counterpartyAccountNumber` (the shares account).
+- **Share purchase:** into the shares account, only after the first deposit (409).
+- **Withdrawal:** savings or current only. The fee from the settings is taken **on top** (withdraw 100 with a fee of 2 → account goes down 102). The account must keep `withdrawalMinBalance` after amount and fee, and the amounts withdrawn from one account in a day (Africa/Accra) can't exceed `withdrawalDailyLimit` (fees don't count). Both → 409 with how much can still be withdrawn.
+- **Transfer:** between savings/current accounts of the same member or two members; no fee; the source keeps `withdrawalMinBalance`; the receiving member must have made their first deposit (409). Shares can't be transferred.
+- Recorded transactions are final (no reversals). Current and available balance move together for now.
+
+**How a transaction is saved:** in one database transaction, the account rows are locked (`SELECT … FOR UPDATE`; deposits and share purchases also lock the member's shares account, transfers lock both accounts in ID order), a retry is detected, the rules are checked, balances change, the transaction row is saved and its journal lines are posted. All of it commits together or not at all.
+
+**Ledger:** journal lines come from the `posting_rule` table (V34), not code, so the accountant can change which GL account each event uses. Each rule puts one part of the money (`PRINCIPAL`, `FEE`, `SHARE`, `REMAINDER`) on the debit or credit side of a GL account, optionally only for a given account type on the transaction's main account or its counterparty. If the rules can't produce a balanced journal that accounts for every amount, the whole transaction is refused (500) and nothing is saved. Journal lines can't be changed or deleted (database triggers).
+
+| Event | Debit | Credit |
+|---|---|---|
+| Deposit | 1010 Cash on Hand | 2010 savings / 2015 current |
+| First deposit | 1010 (whole amount) | 3010 Share Capital (share part), 2010 / 2015 (rest) |
+| Share purchase | 1010 | 3010 |
+| Withdrawal | 2010 / 2015 (amount + fee) | 1010 (amount), 4020 Fee and Commission Income (fee) |
+| Transfer | source 2010 / 2015 | destination 2010 / 2015 |
+
+The chart (V33) and rules are a working version until the credit union's accountant reviews them.
 
 ## Audit log
 
@@ -187,6 +232,10 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V28 | `password_reset_codes.is_sent`: whether the reset SMS went out |
 | V29, V30 | `password` and `role` on `collector` |
 | V31 | `financial_settings`: the editable first-deposit share amount and withdrawal settings, one row, seeded with **mock values** |
+| V32 | `financial_settings.min_first_deposit` (mock 100.00); can't be below the share amount |
+| V33 | Working chart of accounts (16 GL accounts, 5 of them headers) and `gl_account.is_header` |
+| V34 | `posting_rule`: which GL accounts each event debits and credits, seeded from standard practice |
+| V35 | `transaction.counterparty_account_id`, `fee_amount`, `share_amount`; journal lines can't be changed or deleted and transactions can't be deleted (triggers) |
 
 ## Status
 
@@ -200,10 +249,11 @@ Development follows the approved roadmap in the project docs, one increment at a
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
 | Automated KYC verification | Works end to end (3.1): R2 download and Textract OCR run outside database transactions; first name, last name, date of birth and ID number must all be read with ≥ 85% confidence and all match (3.6) for automatic activation; anything missing, unclear or different goes to `MANUAL_REVIEW` with a reason listing each problem. Dates are compared only through the OCR provider's ISO-normalised value, never guessed from printed text. OCR confirms the text matches; it doesn't prove the document is genuine |
 | Manual KYC approval and rejection | Implemented (ADMINISTRATOR only) |
-| Financial settings | Stored and editable through the service (V31), mock values; no endpoint yet |
-| Endpoint role permissions | Implemented for all current endpoints (1.1) |
-| Transaction groundwork | Implemented (5.1): account row locking (`PESSIMISTIC_WRITE`), idempotency keys, amount rules. No money-moving endpoint yet |
-| Deposits, withdrawals, transfers, ledger postings, shares, SMS on collection | Not implemented; waits on the approved chart of accounts and posting rules (D15, D30) |
+| Financial settings | Stored and editable through the service (V31, V32), mock values; no endpoint yet |
+| Transactions | Deposits (with first-deposit share split), share purchases, withdrawals (fee on top, minimum balance, daily limit) and transfers at the office, with balance and history reads |
+| General ledger | Working chart of accounts, posting rules as data, balanced and immutable journal lines, trial balance |
+| Endpoint role permissions | URL rules in `SecurityConfig` (see API) |
+| Collector recording, collection SMS, loans | Not implemented |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
 ### Completed increments
@@ -232,3 +282,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **5.1 Transaction groundwork (no endpoints yet):** `AccountLockService` locks member accounts with PostgreSQL row locks (`PESSIMISTIC_WRITE`, i.e. `SELECT … FOR UPDATE`; owner decision 2026-11-07), so money movements on the same account run one at a time. Only ACTIVE accounts of ACTIVE members can be locked (409 otherwise; unknown → 404). Transfers lock both accounts in ascending ID order to prevent deadlocks; same account twice → 400. `TransactionService` handles idempotency keys: the same key with the same type, account and amount returns the recorded transaction instead of applying it again; the same key with a different request → 409, as does a simultaneous duplicate caught by the unique key. `MoneyRules`: amounts must be positive, at most 4 decimal places and fit `DECIMAL(19,4)`. Whether amounts are limited to 2 decimal places (pesewas) is undecided. Recorded transactions are final, with no reversals (D16).
 - **8.1 Business audit log:** `audit_log` table (V22, append-only, checked on PostgreSQL 16) and `AuditLogService`, which joins the caller's transaction. Staff management, password resets, member registration and contact updates, and every KYC step (submit, re-upload, automated result, manual approval/rejection, document viewing) are recorded with who acted, on what, and when. Viewing a KYC document now runs in a read-write transaction so the view is recorded.
 - **9.x Actuator and API docs:** `spring-boot-starter-actuator` with only health and info exposed, both ADMINISTRATOR-only (owner decision 2026-11-07: no public actuator access); springdoc-openapi 3.2.0 (the line for Spring Boot 4.1) with the JWT bearer scheme documented, served only when `API_DOCS_ENABLED=true`.
+- **Financial settings and the ledger/transaction engine (PR #14):** editable `financial_settings` with mock values (V31, V32); working chart of accounts (V33) and posting rules as data (V34); `PostingService` builds balanced journal lines from the rules; deposits with the first-deposit share split, share purchases, withdrawals (fee on top, rounded to 2 decimals for percentages, minimum balance, daily limit) and transfers between savings/current accounts of the same or different members, at `/api/transaction` for ADMINISTRATOR and AGENT; account balance and history reads; trial balance at `/api/admin/ledger`. Journal lines and transactions are protected by triggers (V35).

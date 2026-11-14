@@ -34,6 +34,7 @@ class FinancialSettingsUpdateRequestValidationTest {
     private FinancialSettingsUpdateRequest.FinancialSettingsUpdateRequestBuilder valid() {
         return FinancialSettingsUpdateRequest.builder()
                 .initialShareAmount(new BigDecimal("50"))
+                .minFirstDeposit(new BigDecimal("100"))
                 .withdrawalMinBalance(new BigDecimal("20"))
                 .withdrawalDailyLimit(new BigDecimal("10000"))
                 .withdrawalFeeEnabled(true)
@@ -68,10 +69,11 @@ class FinancialSettingsUpdateRequestValidationTest {
     void negativeAmountsAreRejected() {
         assertThat(invalidFields(valid()
                 .initialShareAmount(new BigDecimal("-1"))
+                .minFirstDeposit(new BigDecimal("-1"))
                 .withdrawalMinBalance(new BigDecimal("-1"))
                 .withdrawalFeeValue(new BigDecimal("-1"))
                 .build()))
-                .containsExactlyInAnyOrder("initialShareAmount", "withdrawalMinBalance", "withdrawalFeeValue");
+                .containsExactlyInAnyOrder("initialShareAmount", "minFirstDeposit", "withdrawalMinBalance", "withdrawalFeeValue");
     }
 
     @Test
@@ -89,7 +91,7 @@ class FinancialSettingsUpdateRequestValidationTest {
     @Test
     void everyFieldIsRequired() {
         assertThat(invalidFields(new FinancialSettingsUpdateRequest()))
-                .containsExactlyInAnyOrder("initialShareAmount", "withdrawalMinBalance", "withdrawalDailyLimit",
+                .containsExactlyInAnyOrder("initialShareAmount", "minFirstDeposit", "withdrawalMinBalance", "withdrawalDailyLimit",
                         "withdrawalFeeEnabled", "withdrawalFeeType", "withdrawalFeeValue", "version");
     }
 }

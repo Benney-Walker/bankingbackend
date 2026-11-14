@@ -54,6 +54,7 @@ class FinancialSettingsServiceTest {
         return FinancialSettings.builder()
                 .id(FinancialSettings.SINGLETON_ID)
                 .initialShareAmount(new BigDecimal("50.0000"))
+                .minFirstDeposit(new BigDecimal("100.0000"))
                 .withdrawalMinBalance(new BigDecimal("20.0000"))
                 .withdrawalDailyLimit(new BigDecimal("10000.0000"))
                 .withdrawalFeeEnabled(true)
@@ -67,6 +68,7 @@ class FinancialSettingsServiceTest {
     private FinancialSettingsUpdateRequest.FinancialSettingsUpdateRequestBuilder sameAsSeeded() {
         return FinancialSettingsUpdateRequest.builder()
                 .initialShareAmount(new BigDecimal("50"))
+                .minFirstDeposit(new BigDecimal("100"))
                 .withdrawalMinBalance(new BigDecimal("20"))
                 .withdrawalDailyLimit(new BigDecimal("10000"))
                 .withdrawalFeeEnabled(true)
@@ -155,6 +157,31 @@ class FinancialSettingsServiceTest {
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("A percentage withdrawal fee can't be more than 100");
         verifyNoInteractions(settingsRepo, auditLogService);
+    }
+
+    // The share purchase is taken out of the first deposit, so the minimum must cover it.
+    @Test
+    void minimumFirstDepositBelowTheShareAmountIsRejected() {
+        assertThatThrownBy(() -> service.updateSettings(sameAsSeeded()
+                .initialShareAmount(new BigDecimal("80"))
+                .minFirstDeposit(new BigDecimal("79.99"))
+                .build(), "900100"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("The minimum first deposit can't be less than the initial share amount");
+        verifyNoInteractions(settingsRepo, auditLogService);
+    }
+
+    @Test
+    void minimumFirstDepositChangeIsLogged() {
+        FinancialSettings settings = seeded();
+        when(settingsRepo.lockById(FinancialSettings.SINGLETON_ID)).thenReturn(Optional.of(settings));
+        when(settingsRepo.saveAndFlush(settings)).thenReturn(settings);
+
+        service.updateSettings(sameAsSeeded().minFirstDeposit(new BigDecimal("150")).build(), "900100");
+
+        assertThat(settings.getMinFirstDeposit()).isEqualByComparingTo("150");
+        verify(auditLogService).recordAs("900100", AuditAction.FINANCIAL_SETTINGS_UPDATED, AuditTargetType.SETTINGS,
+                "financial", "minFirstDeposit 100 -> 150");
     }
 
     // A flat fee is an amount in GHS, so it can be more than 100.

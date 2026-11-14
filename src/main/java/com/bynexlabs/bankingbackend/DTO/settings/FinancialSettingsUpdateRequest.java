@@ -27,6 +27,11 @@ public class FinancialSettingsUpdateRequest {
     @Digits(integer = 15, fraction = 4, message = "Initial share amount is too large or has more than 4 decimal places")
     private BigDecimal initialShareAmount;
 
+    @NotNull(message = "Minimum first deposit is required")
+    @PositiveOrZero(message = "Minimum first deposit can't be negative")
+    @Digits(integer = 15, fraction = 4, message = "Minimum first deposit is too large or has more than 4 decimal places")
+    private BigDecimal minFirstDeposit;
+
     @NotNull(message = "Minimum balance is required")
     @PositiveOrZero(message = "Minimum balance can't be negative")
     @Digits(integer = 15, fraction = 4, message = "Minimum balance is too large or has more than 4 decimal places")

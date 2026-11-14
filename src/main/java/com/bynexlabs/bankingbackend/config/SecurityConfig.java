@@ -83,6 +83,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/member/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
                         .requestMatchers("/api/staff/**").hasAnyAuthority(Roles.AGENT.name(), Roles.ADMINISTRATOR.name())
+                        // Office money movements (owner decision 2026-11-14): administrators and agents.
+                        // Collectors will record through their own flow later.
+                        .requestMatchers("/api/transaction/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
                         .anyRequest().authenticated()
                 ).sessionManagement( session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)

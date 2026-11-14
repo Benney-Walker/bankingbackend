@@ -12,6 +12,7 @@ import java.time.Instant;
  */
 public record FinancialSettingsResponse(
         BigDecimal initialShareAmount,
+        BigDecimal minFirstDeposit,
         BigDecimal withdrawalMinBalance,
         BigDecimal withdrawalDailyLimit,
         boolean withdrawalFeeEnabled,
@@ -24,6 +25,7 @@ public record FinancialSettingsResponse(
     public static FinancialSettingsResponse from(FinancialSettings settings) {
         return new FinancialSettingsResponse(
                 settings.getInitialShareAmount(),
+                settings.getMinFirstDeposit(),
                 settings.getWithdrawalMinBalance(),
                 settings.getWithdrawalDailyLimit(),
                 settings.isWithdrawalFeeEnabled(),

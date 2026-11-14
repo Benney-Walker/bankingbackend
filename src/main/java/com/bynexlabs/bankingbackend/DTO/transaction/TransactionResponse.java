@@ -24,6 +24,15 @@ public class TransactionResponse {
     private TransactionType transactionType;
     private BigDecimal amount;
     private String accountNumber;
+
+    /** A transfer's destination, or the shares account that received a first deposit's share part. */
+    private String counterpartyAccountNumber;
+
+    /** Withdrawal fee, taken on top of amount. */
+    private BigDecimal feeAmount;
+
+    /** Share part of a first deposit; amount minus this went to accountNumber. */
+    private BigDecimal shareAmount;
     private TransactionStatus status;
     private String description;
     private String initiatedByStaffId;
@@ -38,6 +47,10 @@ public class TransactionResponse {
                 .transactionType(transaction.getTransactionType())
                 .amount(transaction.getAmount())
                 .accountNumber(transaction.getMemberAccount() == null ? null : transaction.getMemberAccount().getAccountNumber())
+                .counterpartyAccountNumber(transaction.getCounterpartyAccount() == null
+                        ? null : transaction.getCounterpartyAccount().getAccountNumber())
+                .feeAmount(transaction.getFeeAmount())
+                .shareAmount(transaction.getShareAmount())
                 .status(transaction.getStatus())
                 .description(transaction.getDescription())
                 .initiatedByStaffId(transaction.getInitiatedBy() == null ? null : transaction.getInitiatedBy().getStaffId())

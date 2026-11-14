@@ -40,13 +40,26 @@ public class TransactionService {
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<Transaction> findReplay(String idempotencyKey, TransactionType type,
                                             String accountNumber, BigDecimal amount) {
+        return findReplay(idempotencyKey, type, accountNumber, null, amount);
+    }
+
+    /**
+     * As above, for requests that name a second account (a transfer's destination), which must
+     * also match. Pass null when the request doesn't name one.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<Transaction> findReplay(String idempotencyKey, TransactionType type, String accountNumber,
+                                            String counterpartyAccountNumber, BigDecimal amount) {
         String key = requireValidKey(idempotencyKey);
         Optional<Transaction> existing = transactionRepo.findByIdempotencyKey(key);
         existing.ifPresent(transaction -> {
             boolean sameRequest = transaction.getTransactionType() == type
                     && transaction.getAmount().compareTo(amount) == 0
                     && transaction.getMemberAccount() != null
-                    && transaction.getMemberAccount().getAccountNumber().equals(accountNumber);
+                    && transaction.getMemberAccount().getAccountNumber().equals(accountNumber)
+                    && (counterpartyAccountNumber == null
+                        || (transaction.getCounterpartyAccount() != null
+                            && transaction.getCounterpartyAccount().getAccountNumber().equals(counterpartyAccountNumber)));
             if (!sameRequest) {
                 throw new ConflictException("This idempotency key was already used for a different transaction");
             }
@@ -68,7 +81,7 @@ public class TransactionService {
         }
     }
 
-    static String requireValidKey(String idempotencyKey) {
+    public static String requireValidKey(String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new BadRequestException("Idempotency key is required");
         }

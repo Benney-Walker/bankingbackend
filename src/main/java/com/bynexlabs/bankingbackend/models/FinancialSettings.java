@@ -40,6 +40,10 @@ public class FinancialSettings {
     @Column(name = "initial_share_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal initialShareAmount;
 
+    /** A member's first deposit must be at least this much; never less than initialShareAmount (V32). */
+    @Column(name = "min_first_deposit", nullable = false, precision = 19, scale = 4)
+    private BigDecimal minFirstDeposit;
+
     @Column(name = "withdrawal_min_balance", nullable = false, precision = 19, scale = 4)
     private BigDecimal withdrawalMinBalance;
 

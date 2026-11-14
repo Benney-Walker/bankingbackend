@@ -94,8 +94,7 @@ public class AuthService {
                         .build();
     }
 
-    public String refreshAccessToken(RefreshRequest refreshRequest) {
-        String refreshToken = refreshRequest.getRefreshToken();
+    public String refreshStaffAccessToken(RefreshRequest refreshRequest) {
 
         if (!jwtUtility.isRefreshToken(refreshToken)) {
             throw new UnauthorizedException("Invalid refresh token");

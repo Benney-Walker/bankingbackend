@@ -38,7 +38,7 @@ class AuthServiceTest {
     void refreshRejectsTokenThatIsNotAValidRefreshToken() {
         when(jwtUtility.isRefreshToken("not-a-refresh-token")).thenReturn(false);
 
-        assertThatThrownBy(() -> authService.refreshAccessToken(new RefreshRequest("not-a-refresh-token")))
+        assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("not-a-refresh-token")))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasMessage("Invalid refresh token");
         verifyNoInteractions(staffService);
@@ -50,7 +50,7 @@ class AuthServiceTest {
         when(jwtUtility.extractUsername("refresh-token")).thenReturn("900199");
         when(staffService.getStaffDetails("900199")).thenReturn(null);
 
-        assertThatThrownBy(() -> authService.refreshAccessToken(new RefreshRequest("refresh-token")))
+        assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("refresh-token")))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasMessage("Invalid or expired refresh token");
         verify(staffService).getStaffDetails("900199");
@@ -63,7 +63,7 @@ class AuthServiceTest {
         when(jwtUtility.extractUsername("refresh-token")).thenReturn("900150");
         when(staffService.getStaffDetails("900150")).thenReturn(inactive);
 
-        assertThatThrownBy(() -> authService.refreshAccessToken(new RefreshRequest("refresh-token")))
+        assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("refresh-token")))
                 .isInstanceOf(UnauthorizedException.class);
         verify(jwtUtility, never()).generateAccessToken(any(), any());
     }

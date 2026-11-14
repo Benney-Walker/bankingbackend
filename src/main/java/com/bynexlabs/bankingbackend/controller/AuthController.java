@@ -32,7 +32,7 @@ public class AuthController {
 
     @PostMapping("/v1/refresh-token")
     public ResponseEntity<?> refreshToken(@Valid @RequestBody RefreshRequest refreshRequest) {
-        return ResponseEntity.ok(authService.refreshAccessToken(refreshRequest));
+        return ResponseEntity.ok(authService.refreshStaffAccessToken(refreshRequest));
     }
 
     @PostMapping("/v1/password-reset/request-code")

@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.Repository;
 
+import java.util.UUID;
 import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.StaffRoles;
@@ -20,4 +21,15 @@ public interface StaffRolesRepo extends JpaRepository<StaffRoles, Long> {
     long countOtherStaffWithRoleAndStatus(@Param("role") Roles role,
                                           @Param("status") StaffStatus status,
                                           @Param("staffId") String staffId);
+
+    // The same, within one branch: used for the one-active-agent-per-branch rule.
+    @Query("""
+            select count(distinct r.staff.id) from StaffRoles r
+            where r.role = :role and r.staff.staffStatus = :status and r.staff.branch.id = :branchId
+              and r.staff.staffId <> :staffId
+            """)
+    long countOtherStaffInBranchWithRoleAndStatus(@Param("role") Roles role,
+                                                  @Param("status") StaffStatus status,
+                                                  @Param("branchId") UUID branchId,
+                                                  @Param("staffId") String staffId);
 }

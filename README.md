@@ -65,19 +65,20 @@ Access is set by URL in `SecurityConfig`:
 |---|---|
 | `/api/auth/**` | Public |
 | `/api/admin/**`, `/actuator/**` | ADMINISTRATOR |
-| `/api/member/**`, `/api/staff/**`, `/api/transaction/**` | ADMINISTRATOR, AGENT |
+| `/api/staff/v1/add-staff` | ADMINISTRATOR |
+| `/api/member/**`, `/api/staff/**` (other endpoints), `/api/transaction/**` | ADMINISTRATOR, AGENT |
 | anything else | any logged-in staff member |
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/auth/v1/staff-login` | Staff login with `staffId` and `password`; returns `staffName`, `roles`, `authToken` and `refreshToken` |
-| POST | `/api/auth/v1/collector-login` | Collector login (mobile app): the collector ID goes in `staffId`, plus `password`; same response shape, with the collector's single role. See "Collectors" |
-| POST | `/api/auth/v1/refresh-staff-token` | Body `{ "refreshToken" }`; returns a new staff access token as a plain string. Inactive or unknown staff → 401 |
-| POST | `/api/auth/v1/refresh-collector-token` | Body `{ "refreshToken" }`; returns a new collector access token as a plain string. Inactive collector → 401 |
+| POST | `/api/auth/v1/staff-login` | Desktop login with `staffId` and `password`; returns `staffName`, `roles`, `authToken`, `refreshToken`. Collector accounts → 403 |
+| POST | `/api/auth/v1/collector-login` | Collector app login, same body and response. Only COLLECTOR accounts (others → 403). See "Collectors" |
+| POST | `/api/auth/v1/refresh-staff-token` | Body `{ "refreshToken" }`; returns the new access token as a plain string. Collector, inactive or unknown accounts → 401 |
+| POST | `/api/auth/v1/refresh-collector-token` | The same for collectors; non-collector, inactive or unknown accounts → 401 |
 | POST | `/api/auth/v1/password-reset/request-code` | Body `{ "staffId" }`. Texts a 6-digit code (Vynfy) to an ACTIVE staff member. Unknown or inactive staff ID → 400; again within a minute → 409; SMS failure → 500 |
 | POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
 | PUT | `/api/auth/v1/password-reset/new-password` | Body `{ "newPassword", "resetToken" }`. Password 8–72 characters, can't be the current one (409). Invalid reset token → 401 |
-| POST | `/api/staff/v1/add-staff` | Create a staff member in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`; password 8–72 characters |
+| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR only. Create a staff member or collector in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`. `COLLECTOR` can't be combined with another role (400); a branch can have only one active agent (409). Password 8–72 characters |
 | GET | `/api/staff/v1/all-staff` | Staff list: an agent sees their own branch's staff, an administrator everyone. Not paginated yet |
 | GET | `/api/staff/v1/staff-details/{staffId}` | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress` |
@@ -130,6 +131,15 @@ Every error uses the same JSON body:
 
 Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException`, `UnauthorizedException`, `InternalServerError` and others (all extend `ApiException` in the `exception` package), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
 
+## Collectors
+
+Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` with a branch and **only** the `COLLECTOR` role. They're created with `add-staff` (ADMINISTRATOR only) and get a staff ID from the same counter as everyone else. The separate `collector` table and entity were removed; V36 drops the table.
+
+- **Sign-in:** the collector app uses `collector-login` and `refresh-collector-token`, which accept only collector accounts; the desktop app's `staff-login` and `refresh-staff-token` refuse them. Wrong passwords and inactive accounts get 401 on both.
+- **Requests:** a collector's access token works like any staff token. Roles are read from the database on every request, so deactivating a collector cuts them off immediately.
+- **Branch rules:** a branch has at most **one active agent** and any number of collectors. Checked when adding staff, changing roles and reactivating (409); the branch row is locked during the check so two changes can't both pass. Deactivating an agent frees the branch for a new one.
+- **Roles:** `COLLECTOR` can't be combined with `ADMINISTRATOR` or `AGENT` (400) on add-staff and update-roles.
+
 ## RabbitMQ messaging
 
 - Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue`, `kyc_verification_queue` and `transaction_sms_queue` (member SMS after each transaction; new queues are simply created on start-up).
@@ -144,19 +154,6 @@ Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundExce
 
 - **Actuator:** only `/actuator/health` and `/actuator/info` are exposed, and both need an ADMINISTRATOR access token (401 without a token, 403 for other roles). Health details (database, RabbitMQ, disk) are shown to that administrator. Every other actuator endpoint (env, beans, configprops, heapdump, …) is off.
 - **API docs:** set `API_DOCS_ENABLED=true` to serve the OpenAPI description at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`. Off by default. When on, these pages are public, so keep it off in production. In Swagger UI, use **Authorize** with an access token from login to try endpoints.
-
-## Collectors
-
-Collectors (the mobile app's users) have their own table and entity, `collector` (V26, V27, V29, V30), separate from `staffs`: collector ID, names, date of birth, phone, email, address, status, branch, a hashed `password` and a single `role`. Their login and token refresh have their own endpoints (`/api/auth/v1/collector-login`, `/api/auth/v1/refresh-collector-token`); `CollectorService.getCollector` looks a collector up by collector ID.
-
-**Not working yet (as of master `5837a4f`):**
-- **Login can't succeed for a collector:** `collector-login` checks the password through the `AuthenticationManager`, whose only `UserDetailsService` (`CustomUserDetailsService`) reads the `staffs` table. A collector ID that isn't also a staff ID fails as a wrong password (401).
-- **Collector tokens don't authenticate API calls:** `JwtAuthenticationFilter` resolves every access token through `StaffService.getStaffRoles`, which only knows staff, so a collector's requests are treated as unauthenticated (401).
-- **Tokens don't say whether they belong to staff or a collector.** If a collector ID ever equals a staff ID, either refresh endpoint would accept the other's refresh token.
-- **No way to create collectors** through the API yet (no endpoint, and no collector ID type in `IdGenerator`).
-- A refresh for an unknown collector ID returns 409 (`Collector account not found`) instead of 401.
-
-Collector money recording is the next increment and depends on these.
 
 ## Financial settings
 
@@ -263,6 +260,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V33 | Working chart of accounts (16 GL accounts, 5 of them headers) and `gl_account.is_header` |
 | V34 | `posting_rule`: which GL accounts each event debits and credits, seeded from standard practice |
 | V35 | `transaction.counterparty_account_id`, `fee_amount`, `share_amount`; journal lines can't be changed or deleted and transactions can't be deleted (triggers) |
+| V36 | Drops the old `collector` table: collectors are staff accounts now |
 
 ## Status
 
@@ -281,7 +279,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 | General ledger | Working chart of accounts, posting rules as data, balanced and immutable journal lines, trial balance |
 | Endpoint role permissions | URL rules in `SecurityConfig` (see API) |
 | Transaction SMS | Every office transaction texts the member (outbox + `transaction_sms_queue`, retries, dead-letter queue) |
-| Collector login and refresh | Endpoints exist; not usable end to end yet (see "Collectors") |
+| Collector accounts | Staff with only the COLLECTOR role; own login and refresh endpoints; one active agent per branch (see "Collectors") |
 | Collector recording, loans | Not implemented |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
@@ -313,4 +311,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **9.x Actuator and API docs:** `spring-boot-starter-actuator` with only health and info exposed, both ADMINISTRATOR-only (owner decision 2026-11-07: no public actuator access); springdoc-openapi 3.2.0 (the line for Spring Boot 4.1) with the JWT bearer scheme documented, served only when `API_DOCS_ENABLED=true`.
 - **Financial settings and the ledger/transaction engine (PR #14):** editable `financial_settings` with mock values (V31, V32); working chart of accounts (V33) and posting rules as data (V34); `PostingService` builds balanced journal lines from the rules; deposits with the first-deposit share split, share purchases, withdrawals (fee on top, rounded to 2 decimals for percentages, minimum balance, daily limit) and transfers between savings/current accounts of the same or different members, at `/api/transaction` for ADMINISTRATOR and AGENT; account balance and history reads; trial balance at `/api/admin/ledger`. Journal lines and transactions are protected by triggers (V35).
 - **Transaction SMS (PR #14):** every transaction queues a member SMS with the new balance through the outbox; `TransactionSmsSender` sends it after commit with retries and a dead-letter queue (`transaction_sms_queue`, `transaction_sms_dead_letter_queue`).
-- **Collector auth (owner, master `5837a4f`, documented 2026-11-14):** separate `collector-login` and `refresh-collector-token` endpoints; staff endpoints renamed to `staff-login` and `refresh-staff-token`. Gaps listed under "Collectors".
+- **Collector auth (owner, master `5837a4f`; fixed on master `806660c`, 2026-11-14):** collectors are staff accounts with only the COLLECTOR role; `collector-login` / `refresh-collector-token` accept only collectors and the staff endpoints refuse them; one active agent per branch; add-staff is ADMINISTRATOR only. The empty `collector` table is dropped by V36.

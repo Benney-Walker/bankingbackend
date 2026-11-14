@@ -26,6 +26,10 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.bynexlabs.bankingbackend.Repository.BranchRepo;
+import com.bynexlabs.bankingbackend.models.Branch;
+import java.util.Optional;
+import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,6 +55,11 @@ class StaffServiceTest {
     @Mock
     private IdGenerator idGenerator;
 
+    @Mock
+    private BranchRepo branchRepo;
+
+    private final Branch branch = Branch.builder().id(UUID.randomUUID()).name("Tarkwa").build();
+
     @Captor
     private ArgumentCaptor<List<StaffRoles>> savedRoles;
 
@@ -61,7 +70,7 @@ class StaffServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService, branchRepo);
     }
 
     private StaffDetails newStaff(List<String> roles) {
@@ -74,6 +83,7 @@ class StaffServiceTest {
                 .password(RAW_PASSWORD)
                 .residentialAddress("Takoradi")
                 .roles(roles)
+                .branchId(branch.getId())
                 .build();
     }
 
@@ -122,8 +132,10 @@ class StaffServiceTest {
     @Test
     void savesActiveStaffWithGeneratedIdHashedPasswordAndRoles() {
         when(idGenerator.generateId(Id_Type.STAFF_ID)).thenReturn("900100");
+        when(branchRepo.findById(branch.getId())).thenReturn(Optional.of(branch));
+        when(branchRepo.lockById(branch.getId())).thenReturn(Optional.of(branch));
 
-        ResponseEntity<?> response = staffService.addNewStaff(newStaff(List.of("agent", "Collector")));
+        ResponseEntity<?> response = staffService.addNewStaff(newStaff(List.of("agent", "Administrator")));
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
 
@@ -138,8 +150,45 @@ class StaffServiceTest {
         verify(staffRolesRepo).saveAll(savedRoles.capture());
         assertThat(savedRoles.getValue())
                 .extracting(StaffRoles::getRole)
-                .containsExactly(Roles.AGENT, Roles.COLLECTOR);
+                .containsExactly(Roles.AGENT, Roles.ADMINISTRATOR);
         assertThat(savedRoles.getValue())
                 .allSatisfy(role -> assertThat(role.getStaff()).isSameAs(staff));
+        assertThat(staff.getBranch()).isSameAs(branch);
+    }
+
+    // Owner rule (2026-11-14): collectors are staff with only the COLLECTOR role.
+    @Test
+    void collectorRoleCantBeCombinedWithAnother() {
+        assertThatThrownBy(() -> staffService.addNewStaff(newStaff(List.of("AGENT", "COLLECTOR"))))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("COLLECTOR can't be combined with other roles");
+        verify(staffRepo, never()).save(any());
+    }
+
+    // Owner rule (2026-11-14): one active agent per branch.
+    @Test
+    void secondActiveAgentInABranchIsRejected() {
+        when(branchRepo.findById(branch.getId())).thenReturn(Optional.of(branch));
+        when(branchRepo.lockById(branch.getId())).thenReturn(Optional.of(branch));
+        when(staffRolesRepo.countOtherStaffInBranchWithRoleAndStatus(Roles.AGENT, StaffStatus.ACTIVE, branch.getId(), ""))
+                .thenReturn(1L);
+
+        assertThatThrownBy(() -> staffService.addNewStaff(newStaff(List.of("AGENT"))))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Branch Tarkwa already has an active agent");
+        verify(staffRepo, never()).save(any());
+        verifyNoInteractions(idGenerator);
+    }
+
+    // Any number of collectors per branch: no agent check, no branch lock.
+    @Test
+    void collectorsAreNotLimitedPerBranch() {
+        when(idGenerator.generateId(Id_Type.STAFF_ID)).thenReturn("900101");
+        when(branchRepo.findById(branch.getId())).thenReturn(Optional.of(branch));
+
+        staffService.addNewStaff(newStaff(List.of("COLLECTOR")));
+
+        verify(staffRepo).save(any(Staff.class));
+        verify(branchRepo, never()).lockById(any());
     }
 }

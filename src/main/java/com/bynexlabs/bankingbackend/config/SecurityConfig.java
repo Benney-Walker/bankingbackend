@@ -26,7 +26,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
-// Endpoint permissions are declared with @PreAuthorize on each controller method.
+// Endpoint permissions are set by URL in filterChain below.
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -82,6 +82,9 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/admin/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/member/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
+                        // Only administrators create staff, collectors included (owner decision 2026-11-14).
+                        // Must come before the /api/staff/** rule, which would otherwise match first.
+                        .requestMatchers("/api/staff/v1/add-staff").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/staff/**").hasAnyAuthority(Roles.AGENT.name(), Roles.ADMINISTRATOR.name())
                         // Office money movements (owner decision 2026-11-14): administrators and agents.
                         // Collectors will record through their own flow later.

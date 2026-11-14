@@ -59,6 +59,37 @@ public class AuthService {
         );
     }
 
+    public LoginResponse collectorAuthentication(LoginRequest loginRequest) {
+
+        authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        loginRequest.getStaffId(),
+                        loginRequest.getPassword()
+                )
+        );
+
+        Staff staff = staffService.getStaffDetails(loginRequest.getStaffId());
+
+        List<String> rolesList = staff.getRoles().stream().map(
+                role -> role.getRole().name()).toList();
+
+        String accessToken = jwtUtility.generateAccessToken(
+                loginRequest.getStaffId(),
+                rolesList
+        );
+
+        String refreshToken = jwtUtility.generateRefreshToken(
+                loginRequest.getStaffId()
+        );
+
+        return LoginResponse.builder()
+                        .staffName(staff.getFirstName().toUpperCase() + " " + staff.getLastName().toUpperCase())
+                        .roles(rolesList)
+                        .authToken(accessToken)
+                        .refreshToken(refreshToken)
+                        .build();
+    }
+
     public String refreshAccessToken(RefreshRequest refreshRequest) {
         String refreshToken = refreshRequest.getRefreshToken();
 

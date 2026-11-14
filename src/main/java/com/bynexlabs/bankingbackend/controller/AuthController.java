@@ -19,10 +19,17 @@ public class AuthController {
 
     private final PasswordResetService passwordResetService;
 
-    @PostMapping("/v1/login")
+    @PostMapping("/v1/staff-login")
     public ResponseEntity<?> staffAuthentication(@Valid @RequestBody LoginRequest loginRequest) {
         return authService.staffAuthentication(loginRequest);
     }
+
+    @PostMapping("/v1/collector-login")
+    public ResponseEntity<?> collectorAuthentication(@Valid @RequestBody LoginRequest loginRequest) {
+
+        return ResponseEntity.ok(authService.collectorAuthentication(loginRequest));
+    }
+
     @PostMapping("/v1/refresh-token")
     public ResponseEntity<?> refreshToken(@Valid @RequestBody RefreshRequest refreshRequest) {
         return ResponseEntity.ok(authService.refreshAccessToken(refreshRequest));

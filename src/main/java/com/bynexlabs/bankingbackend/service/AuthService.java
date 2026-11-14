@@ -96,11 +96,9 @@ public class AuthService {
 
     public String refreshStaffAccessToken(RefreshRequest refreshRequest) {
 
-        if (!jwtUtility.isRefreshToken(refreshToken)) {
-            throw new UnauthorizedException("Invalid refresh token");
-        }
+        verifyRefreshToken(refreshRequest);
 
-        String staffId = jwtUtility.extractUsername(refreshToken);
+        String staffId = jwtUtility.extractUsername(refreshRequest.getRefreshToken());
         Staff staff = staffService.getStaffDetails(staffId);
         // An inactive staff member must not be able to mint new access tokens.
         if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {

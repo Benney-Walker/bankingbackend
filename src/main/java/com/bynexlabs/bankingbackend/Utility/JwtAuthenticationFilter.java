@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.Utility;
 
+import com.bynexlabs.bankingbackend.service.StaffService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,7 +27,7 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
     private final JwtUtility jwtUtility;
 
-    private final StaffRepo staffRepo;
+    private final StaffService staffService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -51,20 +52,11 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
         try {
             String username = jwtUtility.extractUsername(token);
+            // Staff roles are checked from db on every request
+            // Therefore changes on roles has no effect on system
+            List<GrantedAuthority> authorities = staffService.getStaffRoles(username);
 
-            // Access tokens stay valid until they expire, so status and roles are read from the
-            // database on every request rather than trusted from the token. Deactivation and role
-            // changes therefore apply immediately (owner decision D32); unknown or inactive staff
-            // are left unauthenticated (401). The token's roles claim is informational only.
-            Staff staff = staffRepo.findWithRolesByStaffId(username)
-                    .filter(found -> found.getStaffStatus() == StaffStatus.ACTIVE)
-                    .orElse(null);
-
-            if (staff != null) {
-                List<GrantedAuthority> authorities = (staff.getRoles() == null ? List.<StaffRoles>of() : staff.getRoles())
-                        .stream()
-                        .map(role -> new SimpleGrantedAuthority(role.getRole().name()))
-                        .collect(Collectors.toUnmodifiableList());
+            if (authorities != null && !authorities.isEmpty()) {
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(

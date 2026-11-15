@@ -320,6 +320,7 @@ public class StaffService {
 
     // --------------------HELPERS------------------------
 
+    @Transactional(readOnly = true)
     public List<GrantedAuthority> getStaffRoles(String staffId) {
         Staff staff = staffRepo.findByStaffId(staffId).orElse(null);
         if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {

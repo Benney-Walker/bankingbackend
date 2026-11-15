@@ -46,7 +46,7 @@ public class CollectorCorrection {
     @Column(name = "record_type", nullable = false, length = 30)
     private CorrectionRecordType recordType;
 
-    /** The transaction ID (PAYMENT) or withdrawal request ID. */
+    /** The corrected payment's transaction ID. */
     @Column(name = "record_id", nullable = false)
     private UUID recordId;
 

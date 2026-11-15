@@ -11,7 +11,7 @@ import com.bynexlabs.bankingbackend.models.Staff;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
-/** Rules shared by collector payments and withdrawal requests. */
+/** Rules for collector payments. */
 public final class CollectorRules {
 
     /**

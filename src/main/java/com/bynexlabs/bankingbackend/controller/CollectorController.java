@@ -5,14 +5,10 @@ import com.bynexlabs.bankingbackend.DTO.collector.CollectorDaySummary;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorMemberResponse;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentResponse;
-import com.bynexlabs.bankingbackend.DTO.collector.WithdrawalRequestCreate;
-import com.bynexlabs.bankingbackend.DTO.collector.WithdrawalRequestResponse;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
 import com.bynexlabs.bankingbackend.service.CollectorPaymentService;
-import com.bynexlabs.bankingbackend.service.WithdrawalRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.web.PagedModel;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,7 +25,8 @@ import java.util.UUID;
 
 /**
  * The collector app's API. /api/collector/** is COLLECTOR-only (SecurityConfig); every action
- * works on the signed-in collector's own branch and records.
+ * works on the signed-in collector's own branch and records. Collectors only take payments:
+ * members withdraw at any branch's office (owner decision 2026-11-15).
  */
 @RequiredArgsConstructor
 @RestController
@@ -37,8 +34,6 @@ import java.util.UUID;
 public class CollectorController {
 
     private final CollectorPaymentService paymentService;
-
-    private final WithdrawalRequestService withdrawalRequestService;
 
     private final AuthenticatedStaffProvider staffProvider;
 
@@ -66,22 +61,5 @@ public class CollectorController {
     public CollectorDaySummary payments(@RequestParam(required = false)
                                         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return paymentService.daySummary(staffProvider.getStaff(), date);
-    }
-
-    @PostMapping("/v1/withdrawal-requests")
-    public WithdrawalRequestResponse createWithdrawalRequest(@Valid @RequestBody WithdrawalRequestCreate request) {
-        return withdrawalRequestService.create(request, staffProvider.getStaff());
-    }
-
-    @PutMapping("/v1/withdrawal-requests/{requestId}")
-    public WithdrawalRequestResponse correctWithdrawalRequest(@PathVariable UUID requestId,
-                                                              @RequestBody CollectorCorrectionRequest request) {
-        return withdrawalRequestService.correct(requestId, request, staffProvider.getStaff());
-    }
-
-    @GetMapping("/v1/withdrawal-requests")
-    public PagedModel<WithdrawalRequestResponse> withdrawalRequests(@RequestParam(defaultValue = "0") int page,
-                                                                    @RequestParam(defaultValue = "20") int size) {
-        return withdrawalRequestService.ownRequests(staffProvider.getStaff(), page, size);
     }
 }

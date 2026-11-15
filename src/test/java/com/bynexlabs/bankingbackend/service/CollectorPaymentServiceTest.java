@@ -204,16 +204,58 @@ class CollectorPaymentServiceTest {
         assertThatThrownBy(() -> service.record(request, collector)).isInstanceOf(BadRequestException.class);
     }
 
-    // A retry after a correction still returns the payment instead of a conflict.
+    // A retry after a correction still returns the payment instead of a conflict: the request
+    // matches the payment as first saved (20, before the correction to 25).
     @Test
     void retryReturnsTheSavedPaymentAsItIsNow() {
         Transaction saved = pending(savings, "25", NOW.minusMinutes(2));
         when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(saved));
+        when(correctionRepo.findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, saved.getId()))
+                .thenReturn(Optional.of(CollectorCorrection.builder().previousAmount(new BigDecimal("20"))
+                        .previousAccount(savings).newAmount(new BigDecimal("25")).newAccount(savings).build()));
 
         CollectorPaymentResponse response = service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector);
 
         assertThat(response.amount()).isEqualByComparingTo("25");
+        verify(transactionRepo).lockIdempotencyKey("key-1");
         verify(transactionService, never()).record(any());
+    }
+
+    @Test
+    void retryMatchingThePaymentAsItIsNowIsAccepted() {
+        Transaction saved = pending(savings, "20", NOW.minusMinutes(2));
+        when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(saved));
+
+        CollectorPaymentResponse response = service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector);
+
+        assertThat(response.amount()).isEqualByComparingTo("20");
+        verifyNoInteractions(correctionRepo);
+        verify(transactionService, never()).record(any());
+    }
+
+    // A key reused for another payment (different amount, never corrected) must not swallow it.
+    @Test
+    void keyReusedForADifferentPaymentIsAConflict() {
+        Transaction saved = pending(savings, "25", NOW.minusMinutes(2));
+        when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(saved));
+        when(correctionRepo.findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, saved.getId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("This idempotency key was already used for a different transaction");
+        verify(transactionService, never()).record(any());
+    }
+
+    @Test
+    void keyReusedForAnotherMembersAccountIsAConflict() {
+        Transaction saved = pending(savings, "20", NOW.minusMinutes(2));
+        when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(saved));
+        when(correctionRepo.findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, saved.getId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000099", "20"), collector))
+                .isInstanceOf(ConflictException.class);
     }
 
     @Test

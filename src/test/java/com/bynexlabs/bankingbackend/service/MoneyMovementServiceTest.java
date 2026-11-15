@@ -229,8 +229,6 @@ class MoneyMovementServiceTest {
     void retriedDepositReturnsTheRecordedTransaction() {
         Member member = member();
         MemberAccount savings = account(member, "1000000002", AccountType.SAVINGS, "140");
-        when(accountLockService.lockWithSharesAccount("1000000002"))
-                .thenReturn(new AccountLockService.AccountWithShares(savings, account(member, "1000000001", AccountType.SHARES, "50")));
         Transaction original = Transaction.builder().idempotencyKey("key-1").transactionType(TransactionType.DEPOSIT)
                 .amount(new BigDecimal("40")).memberAccount(savings).status(TransactionStatus.COMPLETED).build();
         when(transactionService.findReplay("key-1", TransactionType.DEPOSIT, "1000000002", new BigDecimal("40")))
@@ -242,8 +240,64 @@ class MoneyMovementServiceTest {
         assertBalance(savings, "140");
         verify(transactionService, never()).record(any());
         verify(postingService, never()).post(any(), any(), any());
+        // Answered before any account is locked or checked.
+        verifyNoInteractions(accountLockService);
         // The member was texted when the transaction was first recorded.
         verifyNoInteractions(transactionSmsService);
+    }
+
+    // A retry must get its original result even if the account was frozen after the first
+    // attempt: the recorded request is found before the lock (which would refuse it) is taken.
+    @Test
+    void retriedWithdrawalReturnsTheRecordedTransactionWithoutCheckingTheAccountAgain() {
+        MemberAccount savings = account(member(), "1000000002", AccountType.SAVINGS, "38");
+        Transaction original = Transaction.builder().idempotencyKey("key-1").transactionType(TransactionType.WITHDRAWAL)
+                .amount(new BigDecimal("100")).memberAccount(savings).status(TransactionStatus.COMPLETED).build();
+        when(transactionService.findReplay("key-1", TransactionType.WITHDRAWAL, "1000000002", new BigDecimal("100")))
+                .thenReturn(Optional.of(original));
+
+        TransactionResponse response = service.withdraw(request(" 1000000002 ", "100"), agent);
+
+        assertThat(response.getIdempotencyKey()).isEqualTo("key-1");
+        verifyNoInteractions(accountLockService, settingsService, postingService, transactionSmsService);
+        verify(transactionService, never()).record(any());
+    }
+
+    // A simultaneous retry: nothing recorded yet when it arrives, but the first attempt commits
+    // while this one waits for the lock, so the check after locking finds it.
+    @Test
+    void simultaneousRetryFindsTheFirstAttemptAfterLocking() {
+        MemberAccount savings = account(member(), "1000000002", AccountType.SAVINGS, "38");
+        when(accountLockService.lockForTransaction(" 1000000002 ")).thenReturn(savings);
+        Transaction original = Transaction.builder().idempotencyKey("key-1").transactionType(TransactionType.WITHDRAWAL)
+                .amount(new BigDecimal("100")).memberAccount(savings).status(TransactionStatus.COMPLETED).build();
+        when(transactionService.findReplay("key-1", TransactionType.WITHDRAWAL, "1000000002", new BigDecimal("100")))
+                .thenReturn(Optional.empty(), Optional.of(original));
+
+        TransactionResponse response = service.withdraw(request(" 1000000002 ", "100"), agent);
+
+        assertThat(response.getIdempotencyKey()).isEqualTo("key-1");
+        assertBalance(savings, "38");
+        verify(transactionService, never()).record(any());
+        verifyNoInteractions(settingsService, postingService, transactionSmsService);
+    }
+
+    @Test
+    void retriedTransferIsAnsweredBeforeLocking() {
+        Member member = member();
+        MemberAccount from = account(member, "1000000002", AccountType.SAVINGS, "80");
+        MemberAccount to = account(member(), "1000000005", AccountType.SAVINGS, "70");
+        Transaction original = Transaction.builder().idempotencyKey("key-2").transactionType(TransactionType.TRANSFER)
+                .amount(new BigDecimal("50")).memberAccount(from).counterpartyAccount(to)
+                .status(TransactionStatus.COMPLETED).build();
+        when(transactionService.findReplay("key-2", TransactionType.TRANSFER, "1000000002", "1000000005",
+                new BigDecimal("50"))).thenReturn(Optional.of(original));
+
+        TransactionResponse response = service.transfer(transfer("1000000002", "1000000005", "50"), agent);
+
+        assertThat(response.getIdempotencyKey()).isEqualTo("key-2");
+        verifyNoInteractions(accountLockService);
+        verify(transactionService, never()).record(any());
     }
 
     // --- share purchases ------------------------------------------------------------------

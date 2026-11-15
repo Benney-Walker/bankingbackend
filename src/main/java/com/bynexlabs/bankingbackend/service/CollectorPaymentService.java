@@ -97,10 +97,14 @@ public class CollectorPaymentService {
         CollectorRules.requireValidRecordedAt(request.getRecordedAt(), now);
 
         // A retry or offline re-sync of a payment already saved returns it as it is now, even if
-        // the collector corrected it since.
+        // the collector corrected it since. The key lock makes a simultaneous duplicate wait for
+        // the first request and then get its payment, instead of a unique-key 409.
+        transactionRepo.lockIdempotencyKey(key);
         Optional<Transaction> existing = transactionRepo.findByIdempotencyKey(key);
         if (existing.isPresent()) {
-            return response(requireOwnPayment(existing.get(), collector, true));
+            Transaction payment = requireOwnPayment(existing.get(), collector, true);
+            requireSamePayment(payment, request, amount);
+            return response(payment);
         }
 
         MemberAccount account = findAccount(request.getAccountNumber());
@@ -234,6 +238,35 @@ public class CollectorPaymentService {
                 account.getMember().getId(), TransactionType.DEPOSIT, TransactionStatus.COMPLETED)) {
             throw new ConflictException("This member's first deposit must be made at the office");
         }
+    }
+
+    /**
+     * A re-sent key must describe the same payment: the request matches the payment as first
+     * saved, or as it is after corrections (the app may re-send either). Otherwise the key was
+     * reused for a different payment, which must not be silently swallowed.
+     */
+    private void requireSamePayment(Transaction payment, CollectorPaymentRequest request, BigDecimal amount) {
+        String accountNumber = request.getAccountNumber() == null ? null : request.getAccountNumber().trim();
+        TransactionType type = typeFor(request.getType());
+        boolean matchesNow = payment.getTransactionType() == type
+                && payment.getAmount().compareTo(amount) == 0
+                && payment.getMemberAccount().getAccountNumber().equals(accountNumber);
+        if (matchesNow) {
+            return;
+        }
+        boolean matchesFirstSaved = correctionRepo
+                .findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, payment.getId())
+                .filter(first -> first.getPreviousAmount().compareTo(amount) == 0
+                        && first.getPreviousAccount().getAccountNumber().equals(accountNumber)
+                        && typeFor(first.getPreviousAccount().getAccountType()) == type)
+                .isPresent();
+        if (!matchesFirstSaved) {
+            throw new ConflictException("This idempotency key was already used for a different transaction");
+        }
+    }
+
+    private static TransactionType typeFor(AccountType accountType) {
+        return accountType == AccountType.SHARES ? TransactionType.SHARES : TransactionType.DEPOSIT;
     }
 
     private static Transaction requireOwnPayment(Transaction transaction, Staff collector, boolean forReplay) {

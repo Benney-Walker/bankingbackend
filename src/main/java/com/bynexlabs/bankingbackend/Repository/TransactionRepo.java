@@ -30,6 +30,16 @@ public interface TransactionRepo extends JpaRepository<Transaction, UUID> {
     @Query("select t from Transaction t where t.id = :id")
     Optional<Transaction> lockById(@Param("id") UUID id);
 
+    /**
+     * Holds a PostgreSQL advisory lock on the idempotency key until the caller's transaction
+     * ends, so two requests with the same key are handled one after the other: the second sees
+     * the first's payment instead of failing on the unique key. Keys whose hashes collide only
+     * wait for each other briefly.
+     */
+    @Query(value = "select count(*) from (select pg_advisory_xact_lock(hashtextextended(:key, 0))) as key_lock",
+            nativeQuery = true)
+    long lockIdempotencyKey(@Param("key") String key);
+
     /** Collector payments whose correction window closed before the given time, oldest first. */
     @Query(value = """
             select id from transaction

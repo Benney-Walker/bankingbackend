@@ -169,7 +169,8 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 - Any member in the collector's own branch (403 otherwise). The account and member must be ACTIVE (409).
 - The member's **first deposit must be made at the office** (409 until then).
 - `type` must match the account: SAVINGS → savings account, SHARES → shares account (400).
-- `idempotencyKey` is made once per payment by the app; re-sending it (retry or offline sync) returns the payment as it is now, even after a correction.
+- `idempotencyKey` is made once per payment by the app; re-sending it (retry or offline sync) returns the payment as it is now, even after a correction. The re-sent request must match the payment as first saved or as it is now (account, type, amount); a key reused for a different payment → 409, so it can't be silently swallowed. Two requests with the same key arriving together are handled one after the other (a PostgreSQL advisory lock on the key), so the second gets the payment rather than an error.
+- Corrections (`PUT`) are safe to repeat: sending the same values again changes nothing and saves no new correction.
 
 **10-minute correction window:**
 1. A payment is saved straight away as `PENDING`; nothing changes on the account yet. The response says until when it can be corrected (`correctableUntil`).
@@ -205,7 +206,7 @@ The mock values are placeholders until the credit union gives its real ones.
 
 Administrators and agents record money movements at the office through `/api/transaction`. Collector recording comes later with the collector flow (10-minute correction window, member SMS).
 
-**Request body** for deposit, share purchase and withdrawal: `{ "idempotencyKey", "accountNumber", "amount", "description" }`. Transfer: `{ "idempotencyKey", "fromAccountNumber", "toAccountNumber", "amount", "description" }`. The app generates `idempotencyKey` (e.g. a UUID) once per user action and re-sends it unchanged on retries: the same key with the same request returns the recorded transaction without moving money again; the same key with a different request → 409. Amounts must be positive with at most 4 decimal places.
+**Request body** for deposit, share purchase and withdrawal: `{ "idempotencyKey", "accountNumber", "amount", "description" }`. Transfer: `{ "idempotencyKey", "fromAccountNumber", "toAccountNumber", "amount", "description" }`. The app generates `idempotencyKey` (e.g. a UUID) once per user action and re-sends it unchanged on retries: the same key with the same request returns the recorded transaction without moving money again; the same key with a different request → 409. A recorded request is answered before the accounts are locked or checked, so a retry still gets its original result even if the account was frozen or its balance changed in between; a simultaneous retry waits on the account lock and then gets the first attempt's result. The member is texted only once, when the transaction is first recorded. Amounts must be positive with at most 4 decimal places.
 
 **Rules:**
 - Accounts and their members must be `ACTIVE` (after KYC) → otherwise 409.

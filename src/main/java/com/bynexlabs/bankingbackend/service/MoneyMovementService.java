@@ -86,6 +86,11 @@ public class MoneyMovementService {
         BigDecimal amount = MoneyRules.requireValidAmount(request.getAmount());
         String key = TransactionService.requireValidKey(request.getIdempotencyKey());
 
+        Optional<TransactionResponse> recorded = alreadyRecorded(key, TransactionType.DEPOSIT, request.getAccountNumber(),
+                null, amount);
+        if (recorded.isPresent()) {
+            return recorded.get();
+        }
         AccountLockService.AccountWithShares locked = accountLockService.lockWithSharesAccount(request.getAccountNumber());
         MemberAccount account = locked.account();
         Optional<Transaction> replay = transactionService.findReplay(key, TransactionType.DEPOSIT,
@@ -139,6 +144,11 @@ public class MoneyMovementService {
         BigDecimal amount = MoneyRules.requireValidAmount(request.getAmount());
         String key = TransactionService.requireValidKey(request.getIdempotencyKey());
 
+        Optional<TransactionResponse> recorded = alreadyRecorded(key, TransactionType.SHARES, request.getAccountNumber(),
+                null, amount);
+        if (recorded.isPresent()) {
+            return recorded.get();
+        }
         MemberAccount account = accountLockService.lockWithSharesAccount(request.getAccountNumber()).account();
         Optional<Transaction> replay = transactionService.findReplay(key, TransactionType.SHARES,
                 account.getAccountNumber(), amount);
@@ -172,6 +182,11 @@ public class MoneyMovementService {
         BigDecimal amount = MoneyRules.requireValidAmount(request.getAmount());
         String key = TransactionService.requireValidKey(request.getIdempotencyKey());
 
+        Optional<TransactionResponse> recorded = alreadyRecorded(key, TransactionType.WITHDRAWAL, request.getAccountNumber(),
+                null, amount);
+        if (recorded.isPresent()) {
+            return recorded.get();
+        }
         MemberAccount account = accountLockService.lockForTransaction(request.getAccountNumber());
         Optional<Transaction> replay = transactionService.findReplay(key, TransactionType.WITHDRAWAL,
                 account.getAccountNumber(), amount);
@@ -213,6 +228,24 @@ public class MoneyMovementService {
     }
 
     /**
+     * A request that was already recorded is answered before any account is locked or checked,
+     * so a retry still gets its original result even if, say, the account was frozen in between.
+     * The same check runs again after locking, for a simultaneous retry that commits while this
+     * one waits for the lock.
+     */
+    private Optional<TransactionResponse> alreadyRecorded(String key, TransactionType type, String accountNumber,
+                                                          String counterpartyAccountNumber, BigDecimal amount) {
+        Optional<Transaction> recorded = counterpartyAccountNumber == null
+                ? transactionService.findReplay(key, type, trimmed(accountNumber), amount)
+                : transactionService.findReplay(key, type, trimmed(accountNumber), counterpartyAccountNumber.trim(), amount);
+        return recorded.map(TransactionResponse::from);
+    }
+
+    private static String trimmed(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    /**
      * Transfer between two savings or current accounts, of the same member or of two members
      * (owner decision 2026-11-14). No fee. The source keeps the minimum balance; the receiving
      * member must already have made their first deposit.
@@ -223,6 +256,11 @@ public class MoneyMovementService {
         BigDecimal amount = MoneyRules.requireValidAmount(request.getAmount());
         String key = TransactionService.requireValidKey(request.getIdempotencyKey());
 
+        Optional<TransactionResponse> recorded = alreadyRecorded(key, TransactionType.TRANSFER,
+                request.getFromAccountNumber(), request.getToAccountNumber(), amount);
+        if (recorded.isPresent()) {
+            return recorded.get();
+        }
         List<MemberAccount> locked = accountLockService.lockForTransfer(request.getFromAccountNumber(),
                 request.getToAccountNumber());
         MemberAccount from = locked.get(0);

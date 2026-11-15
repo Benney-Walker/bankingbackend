@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
@@ -21,15 +22,11 @@ public class JwtUtility {
     @Value("${jwt.access-expiration}")
     private long accessExpirationInMs;
 
-    @Value("${jwt.refresh-expiration}")
-    private long refreshExpirationInMs;
-
     @Value("${jwt.reset-expiration}")
     private long resetExpirationInMs;
 
     private static final String TYPE_CLAIM = "type";
     private static final String ACCESS = "access";
-    private static final String REFRESH = "refresh";
     private static final String RESET = "reset";
 
     private Key signingKey() {
@@ -57,16 +54,6 @@ public class JwtUtility {
                 .compact();
     }
 
-    public String generateRefreshToken(String username) {
-        return Jwts.builder()
-                .setSubject(username)
-                .claim(TYPE_CLAIM, REFRESH)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + refreshExpirationInMs))
-                .signWith(signingKey(), SignatureAlgorithm.HS256)
-                .compact();
-    }
-
     public boolean validateToken(String token) {
         try {
             Jwts.parserBuilder()
@@ -90,9 +77,6 @@ public class JwtUtility {
     public boolean isAccessToken(String token) {
         return validateToken(token) && ACCESS.equals(extractType(token));
     }
-    public boolean isRefreshToken(String token) {
-        return validateToken(token) && REFRESH.equals(extractType(token));
-    }
     public boolean isResetToken(String token) {
         return validateToken(token) && RESET.equals(extractType(token));
     }
@@ -107,6 +91,12 @@ public class JwtUtility {
 
     public String extractUsername(String token) {
         return extractAllClaims(token).getSubject();
+    }
+
+    /** When the token was issued (whole seconds). Refresh tokens are no longer JWTs (SessionService). */
+    public Instant extractIssuedAt(String token) {
+        Date issuedAt = extractAllClaims(token).getIssuedAt();
+        return issuedAt == null ? null : issuedAt.toInstant();
     }
 
     public List<String> extractRoles(String token) {

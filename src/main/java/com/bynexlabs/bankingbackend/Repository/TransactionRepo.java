@@ -40,6 +40,26 @@ public interface TransactionRepo extends JpaRepository<Transaction, UUID> {
             nativeQuery = true)
     long lockIdempotencyKey(@Param("key") String key);
 
+    /** A collector's payments not yet handed in with a submission (COMPLETED and FAILED; never PENDING). */
+    @Query("""
+            select t from Transaction t
+            where t.initiatedBy.id = :collectorId and t.channel = com.bynexlabs.bankingbackend.enums.TransactionChannel.COLLECTOR
+              and t.collectorSubmission is null and t.status <> com.bynexlabs.bankingbackend.enums.TransactionStatus.PENDING
+            order by t.createdAt
+            """)
+    List<Transaction> findUnsubmittedCollectorPayments(@Param("collectorId") UUID collectorId);
+
+    /** A collector's payments still in their 10-minute window, oldest first. */
+    @Query("""
+            select t from Transaction t
+            where t.initiatedBy.id = :collectorId and t.channel = com.bynexlabs.bankingbackend.enums.TransactionChannel.COLLECTOR
+              and t.status = com.bynexlabs.bankingbackend.enums.TransactionStatus.PENDING
+            order by t.createdAt
+            """)
+    List<Transaction> findPendingCollectorPayments(@Param("collectorId") UUID collectorId);
+
+    List<Transaction> findByCollectorSubmission_IdOrderByCreatedAtAsc(UUID submissionId);
+
     /** Collector payments whose correction window closed before the given time, oldest first. */
     @Query(value = """
             select id from transaction

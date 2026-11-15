@@ -18,6 +18,7 @@ import com.bynexlabs.bankingbackend.enums.AuditAction;
 import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.Id_Type;
 import com.bynexlabs.bankingbackend.enums.Roles;
+import com.bynexlabs.bankingbackend.enums.SessionEndReason;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.models.Branch;
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -62,6 +64,8 @@ public class StaffService {
     private final AuditLogService auditLogService;
 
     private final BranchRepo branchRepo;
+
+    private final SessionService sessionService;
 
     // Upper bound on the staff list page size, so one request can't pull the whole table.
     static final int MAX_PAGE_SIZE = 100;
@@ -187,11 +191,13 @@ public class StaffService {
         if (!before.equals(requested)) {
             auditLogService.record(AuditAction.STAFF_ROLES_CHANGED, AuditTargetType.STAFF, staffId,
                     "Roles " + before + " -> " + requested);
+            // Owner decision 2026-11-15: a role change signs the staff member out everywhere.
+            sessionService.endAllSessions(staff.getId(), SessionEndReason.ROLES_CHANGED);
         }
         return StaffResponse.from(staff);
     }
 
-    /** Takes effect immediately: JwtAuthenticationFilter rejects inactive staff on every request. */
+    /** Takes effect immediately: JwtAuthenticationFilter rejects inactive staff on every request, and their sessions are ended. */
     @Transactional
     public StaffResponse deactivateStaff(String staffId, String actingStaffId) {
         Staff staff = findStaffOrThrow(staffId);
@@ -211,6 +217,8 @@ public class StaffService {
         staff.setUpdatedAt(LocalDateTime.now());
         staffRepo.save(staff);
         auditLogService.record(AuditAction.STAFF_DEACTIVATED, AuditTargetType.STAFF, staffId, null);
+        // Owner decision 2026-11-15: revoke stored sessions too, so reactivation doesn't revive them.
+        sessionService.endAllSessions(staff.getId(), SessionEndReason.DEACTIVATED);
         return StaffResponse.from(staff);
     }
 
@@ -321,10 +329,15 @@ public class StaffService {
     // --------------------HELPERS------------------------
 
     @Transactional(readOnly = true)
-    public List<GrantedAuthority> getStaffRoles(String staffId) {
+    public List<GrantedAuthority> getStaffRoles(String staffId, Instant tokenIssuedAt) {
         Staff staff = staffRepo.findByStaffId(staffId).orElse(null);
         if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {
             throw new UnauthorizedException("Staff account inactive or not found");
+        }
+        // Sessions ended after this token was issued (SessionService): refuse it at once.
+        Instant cutoff = staff.getSessionsValidAfter();
+        if (cutoff != null && (tokenIssuedAt == null || tokenIssuedAt.isBefore(cutoff))) {
+            throw new UnauthorizedException("Session has ended");
         }
 
         return staff.getRoles().stream().map(

@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.controller;
 
+import com.bynexlabs.bankingbackend.DTO.auth.TokenResponse;
 import com.bynexlabs.bankingbackend.DTO.auth.LoginResponse;
 import com.bynexlabs.bankingbackend.exception.GlobalExceptionHandler;
 import com.bynexlabs.bankingbackend.service.AuthService;
@@ -71,25 +72,36 @@ class AuthControllerTest {
     }
 
     @Test
-    void staffRefreshIsAPostReturningTheToken() throws Exception {
-        when(authService.refreshStaffAccessToken(any())).thenReturn("new-access-token");
+    void staffRefreshIsAPostReturningBothTokens() throws Exception {
+        when(authService.refreshStaffAccessToken(any())).thenReturn(new TokenResponse("new-access-token", "next-refresh"));
 
         mockMvc.perform(post("/api/auth/v1/refresh-staff-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"refresh-token\"}"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("new-access-token"));
+                .andExpect(jsonPath("$.authToken").value("new-access-token"))
+                .andExpect(jsonPath("$.refreshToken").value("next-refresh"));
     }
 
     @Test
-    void collectorRefreshIsAPostReturningTheToken() throws Exception {
-        when(authService.refreshCollectorAccessToken(any())).thenReturn("new-collector-token");
+    void collectorRefreshIsAPostReturningBothTokens() throws Exception {
+        when(authService.refreshCollectorAccessToken(any())).thenReturn(new TokenResponse("new-collector-token", "next-refresh"));
 
         mockMvc.perform(post("/api/auth/v1/refresh-collector-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"refresh-token\"}"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("new-collector-token"));
+                .andExpect(jsonPath("$.authToken").value("new-collector-token"))
+                .andExpect(jsonPath("$.refreshToken").value("next-refresh"));
+    }
+
+    @Test
+    void logoutIsANoContentPost() throws Exception {
+        mockMvc.perform(post("/api/auth/v1/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"refresh-token\"}"))
+                .andExpect(status().isNoContent());
+        verify(authService).logout(any());
     }
 
     @Test

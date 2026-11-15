@@ -47,6 +47,9 @@ class StaffManagementServiceTest {
     private static final String STAFF_ID = "900105";
 
     @Mock
+    private SessionService sessionService;
+
+    @Mock
     private StaffRepo staffRepo;
 
     @Mock
@@ -65,7 +68,7 @@ class StaffManagementServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo, sessionService);
     }
 
     private Staff existingStaff() {

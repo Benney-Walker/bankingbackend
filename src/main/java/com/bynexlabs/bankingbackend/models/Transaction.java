@@ -86,4 +86,9 @@ public class Transaction {
     /** Why a collector payment couldn't be applied when its window closed (status FAILED). */
     @Column(name = "failure_reason", columnDefinition = "TEXT")
     private String failureReason;
+
+    /** The collector's daily submission this payment was handed in with (V39); null until submitted. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "collector_submission_id")
+    private CollectorSubmission collectorSubmission;
 }

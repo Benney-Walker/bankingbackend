@@ -11,5 +11,7 @@ public enum PostingEvent {
     /** A collector's savings deposit, applied when its correction window closes. */
     COLLECTOR_DEPOSIT,
     /** A collector's share purchase, applied when its correction window closes. */
-    COLLECTOR_SHARE_PURCHASE
+    COLLECTOR_SHARE_PURCHASE,
+    /** A collector's cash counted in at the office when their daily submission is approved. */
+    COLLECTOR_HANDOVER
 }

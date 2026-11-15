@@ -69,6 +69,8 @@ public class CollectorPaymentService {
 
     private final CollectorPaymentApplier applier;
 
+    private final CollectorSubmissionService submissionService;
+
     /** Replaceable in tests. */
     Clock clock = Clock.system(ZoneId.of("Africa/Accra"));
 
@@ -106,6 +108,8 @@ public class CollectorPaymentService {
             requireSamePayment(payment, request, amount);
             return response(payment);
         }
+        // Once the collector has submitted for the day, nothing more can be recorded.
+        submissionService.requireCanRecord(collector);
 
         MemberAccount account = findAccount(request.getAccountNumber());
         requireAccountForType(account, request.getType());

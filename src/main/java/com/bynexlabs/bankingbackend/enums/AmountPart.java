@@ -9,5 +9,9 @@ public enum AmountPart {
     /** The share part of a first deposit. */
     SHARE,
     /** A first deposit minus its share part. */
-    REMAINDER
+    REMAINDER,
+    /** The part of a collector handover that settles recorded collections (at most the expected amount). */
+    SETTLED,
+    /** Cash counted in a collector handover above the expected amount. */
+    OVERAGE
 }

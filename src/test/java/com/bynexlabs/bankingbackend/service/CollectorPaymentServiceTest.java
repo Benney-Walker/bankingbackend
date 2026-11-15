@@ -57,6 +57,9 @@ class CollectorPaymentServiceTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 14, 10, 0);
 
     @Mock
+    private CollectorSubmissionService submissionService;
+
+    @Mock
     private TransactionRepo transactionRepo;
     @Mock
     private TransactionService transactionService;
@@ -77,7 +80,7 @@ class CollectorPaymentServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CollectorPaymentService(transactionRepo, transactionService, memberAccountRepo, correctionRepo, applier);
+        service = new CollectorPaymentService(transactionRepo, transactionService, memberAccountRepo, correctionRepo, applier, submissionService);
         service.clock = Clock.fixed(NOW.atZone(ACCRA).toInstant(), ACCRA);
         lenient().when(transactionService.record(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -266,6 +269,17 @@ class CollectorPaymentServiceTest {
 
         assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
                 .isInstanceOf(ConflictException.class);
+    }
+
+    // Owner decision 2026-11-15: submitting closes the day.
+    @Test
+    void paymentsAreRefusedOnceTheDayIsSubmitted() {
+        org.mockito.Mockito.doThrow(new ConflictException("You've submitted your collections for the day."))
+                .when(submissionService).requireCanRecord(collector);
+
+        assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
+                .isInstanceOf(ConflictException.class);
+        verify(transactionService, never()).record(any());
     }
 
     // --- corrections ----------------------------------------------------------------------

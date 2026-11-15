@@ -75,8 +75,9 @@ Access is set by URL in `SecurityConfig`:
 |---|---|---|
 | POST | `/api/auth/v1/staff-login` | Desktop login with `staffId` and `password`; returns `staffName`, `roles`, `authToken`, `refreshToken`. Collector accounts → 403 |
 | POST | `/api/auth/v1/collector-login` | Collector app login, same body and response. Only COLLECTOR accounts (others → 403). See "Collectors" |
-| POST | `/api/auth/v1/refresh-staff-token` | Body `{ "refreshToken" }`; returns the new access token as a plain string. Collector, inactive or unknown accounts → 401 |
+| POST | `/api/auth/v1/refresh-staff-token` | Body `{ "refreshToken" }`; returns `{ "authToken", "refreshToken" }`. The old refresh token stops working: store the new one. Collector, inactive or unknown accounts, or an ended session → 401. See "Sessions" |
 | POST | `/api/auth/v1/refresh-collector-token` | The same for collectors; non-collector, inactive or unknown accounts → 401 |
+| POST | `/api/auth/v1/logout` | Body `{ "refreshToken" }`. Signs out this device (both apps): the session's refresh tokens stop working and its access tokens are refused at once. Always 204 |
 | POST | `/api/auth/v1/password-reset/request-code` | Body `{ "staffId" }`. Texts a 6-digit code (Vynfy) to an ACTIVE staff member. Unknown or inactive staff ID → 400; again within a minute → 409; SMS failure → 500 |
 | POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
 | PUT | `/api/auth/v1/password-reset/new-password` | Body `{ "newPassword", "resetToken" }`. Password 8–72 characters, can't be the current one (409). Invalid reset token → 401 |
@@ -106,6 +107,11 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "recordedAt" }`. See "Collector recording" |
 | PUT | `/api/collector/v1/payments/{transactionId}` | Collector: correction within 10 minutes, body `{ "amount", "accountNumber" }` (either or both) |
 | GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
+| POST | `/api/collector/v1/submissions` | Collector: close the day and submit every payment not yet handed in. See "Daily submission" |
+| GET | `/api/collector/v1/submissions?page=0&size=20` | Collector: their submissions and outcomes, newest first |
+| GET | `/api/transaction/v1/collector-submissions?status=SUBMITTED&page=0&size=20` | Collector submissions by status (`SUBMITTED`, `APPROVED`). Agents: their branch's collectors only; administrators: every branch |
+| GET | `/api/transaction/v1/collector-submissions/{submissionId}` | One submission with the payments it covers (agents: own branch, 403 otherwise) |
+| POST | `/api/transaction/v1/collector-submissions/{submissionId}/approve` | Body `{ "countedAmount" }`, the cash counted (0 allowed). Moves it to Cash on Hand, records any shortage or surplus, signs the collector out until tomorrow |
 | GET | `/api/admin/ledger/v1/trial-balance` | Debit and credit totals and balance for every postable GL account; `balanced` should always be true |
 
 Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
@@ -127,7 +133,7 @@ Every error uses the same JSON body:
 | Status | When |
 |---|---|
 | 400 | Validation failure (`message` and `errors` are a field → message map), malformed or missing JSON body, missing parameter or multipart part, wrongly typed value (e.g. a bad UUID in the path), invalid staff or member phone number (must be exactly 10 digits starting with 0), staff date of birth not in yyyy-MM-dd format, unknown staff role, staff list `page`/`size` out of range |
-| 401 | Wrong staff ID or password (an inactive account gets the same response), invalid refresh token, a missing/expired access token, or a token belonging to staff who are no longer active |
+| 401 | Wrong staff ID or password (an inactive account gets the same response), invalid, used or revoked refresh token, a missing/expired access token, an access token from a session that has ended (logout, daily approval, password reset, deactivation, role change), or a token belonging to staff who are no longer active |
 | 403 | Authenticated, but the staff member's role isn't allowed to call the endpoint, or a rule limits the action to a particular staff member (KYC re-upload after rejection) |
 | 404 | Unknown path, or a record that doesn't exist (e.g. an unknown staff ID or member, or manual KYC approval for an unknown member) |
 | 405 | HTTP method not supported by the endpoint |
@@ -137,11 +143,22 @@ Every error uses the same JSON body:
 
 Services raise `BadRequestException`, `ConflictException`, `ResourceNotFoundException`, `UnauthorizedException`, `InternalServerError` and others (all extend `ApiException` in the `exception` package), and `GlobalExceptionHandler` builds the body. Success response bodies are unchanged.
 
+## Sessions
+
+Owner decisions 2026-11-15, following standard practice for refresh tokens:
+
+- **Stored refresh tokens.** A refresh token is a random string; only its SHA-256 hash is kept (`refresh_token`, V39). Each login starts a session; its tokens all expire when the first one would (`JWT_REFRESH_EXPIRATION` after login): refreshing doesn't make a session longer.
+- **Rotation.** Every refresh returns a new refresh token, and the old one stops working. The apps must store the new one each time and send **one refresh at a time**.
+- **Stolen-token detection.** If a token that was already swapped is used again, someone has a copy: the whole session ends (all its tokens revoked, its access tokens refused). One exception: the same old token sent again within `AUTH_REFRESH_RETRY_GRACE_SECONDS` (default 30), before the new one was used, is treated as the app retrying a refresh whose response it never got, and gets a fresh token instead.
+- **Ending sessions.** `logout` ends that device's session. Approving a collector's daily submission, a password reset, deactivation and a role change end **all** of the staff member's sessions.
+- **Immediate effect.** Ending a session sets `staffs.sessions_valid_after`. Access tokens issued before it are refused on the next request (401), instead of working until they expire. Other devices whose sessions are still valid just refresh once.
+- **Housekeeping.** Expired tokens are deleted 30 days after expiry (`AUTH_REFRESH_TOKEN_CLEANUP_CRON`, default 03:30 daily).
+
 ## Collectors
 
 Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` with a branch and **only** the `COLLECTOR` role. They're created with `add-staff` (ADMINISTRATOR only) and get a staff ID from the same counter as everyone else. The separate `collector` table and entity were removed; V36 drops the table.
 
-- **Sign-in:** the collector app uses `collector-login` and `refresh-collector-token`, which accept only collector accounts; the desktop app's `staff-login` and `refresh-staff-token` refuse them. Wrong passwords and inactive accounts get 401 on both.
+- **Sign-in:** the collector app uses `collector-login` and `refresh-collector-token`, which accept only collector accounts; the desktop app's `staff-login` and `refresh-staff-token` refuse them. Wrong passwords and inactive accounts get 401 on both. Once today's submission is approved, `collector-login` → 403 until tomorrow (Africa/Accra).
 - **Requests:** a collector's access token works like any staff token. Roles are read from the database on every request, so deactivating a collector cuts them off immediately.
 - **Branch rules:** a branch has at most **one active agent** and any number of collectors. Checked when adding staff, changing roles and reactivating (409); the branch row is locked during the check so two changes can't both pass. Deactivating an agent frees the branch for a new one.
 - **Roles:** `COLLECTOR` can't be combined with `ADMINISTRATOR` or `AGENT` (400) on add-staff and update-roles.
@@ -180,6 +197,16 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 
 
 **Day summary:** `GET /api/collector/v1/payments?date=` lists the collector's payments for the day with the number of payments and savings, shares and overall totals (failed payments not counted).
+
+### Daily submission
+
+Owner decisions 2026-11-15:
+
+1. **The collector closes the day** with `POST /api/collector/v1/submissions`. Allowed once none of their payments is still in its 10-minute window (409 with the time they can submit). The submission covers **every payment not yet in a submission**, so a missed day is picked up: `COMPLETED` payments make up `expectedAmount`; `FAILED` ones are counted separately (`failedCount`, `failedAmount`) for the approver. Submitting again while waiting returns the same submission. The app must sync offline payments before submitting.
+2. **No more recording.** From then on, new payments (including offline ones) → 409 until the submission is approved. Retries of payments already saved still return them.
+3. **Approval.** The agent of the collector's branch (403 for another branch) or an administrator counts the cash and approves with `countedAmount`. A handover transaction (`COLLECTOR_HANDOVER`, no member account) posts: debit **1010 Cash on Hand** with the cash counted, credit **1015 Cash with Collectors** with up to the expected amount, and credit **2030 Cash Overages (Suspense)** with any surplus. A **shortage stays in 1015** (still owed by the collector) and is recorded on the submission as `shortageAmount`. Counting 0 posts nothing. An approved submission is final (database trigger); approving again with the same amount returns it, a different amount → 409.
+4. **Sign-out.** Approval ends all the collector's sessions at once, and `collector-login` is refused (403) for the rest of the day the submission was made.
+
 
 ## Financial settings
 
@@ -289,6 +316,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V36 | Drops the old `collector` table: collectors are staff accounts now |
 | V37 | Collector recording: `transaction.channel`, `recorded_at`, `failure_reason`; `withdrawal_request`; append-only `collector_correction`; posting rules for collector deposits and share purchases (cash to 1015) |
 | V38 | Removes withdrawal requests: drops `withdrawal_request` and its corrections; `collector_correction.record_type` is `PAYMENT` only |
+| V39 | Sessions: `refresh_token` (hashed, rotating) and `staffs.sessions_valid_after`. Collector daily submissions: `collector_submission` (one open per collector, final once approved), `transaction.collector_submission_id`, GL **2030 Cash Overages (Suspense)** and `COLLECTOR_HANDOVER` posting rules (amount parts `SETTLED`, `OVERAGE`) |
 
 ## Status
 
@@ -296,7 +324,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 
 | Area | State |
 |---|---|
-| Staff login, JWT access and refresh | Implemented |
+| Staff login, JWT access and refresh | Implemented; refresh tokens stored and rotated, logout, sessions ended at once (see "Sessions") |
 | Staff creation | Implemented; persistence fixed in 0.1 (staff IDs are now generated) |
 | Member registration and async account creation | Implemented; member timestamps fixed in 0.1 |
 | KYC upload to R2 | Implemented; pending records can now be saved (V14) |
@@ -308,7 +336,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Endpoint role permissions | URL rules in `SecurityConfig` (see API) |
 | Transaction SMS | Every office transaction texts the member (outbox + `transaction_sms_queue`, retries, dead-letter queue) |
 | Collector accounts | Staff with only the COLLECTOR role; own login and refresh endpoints; one active agent per branch (see "Collectors") |
-| Collector recording | Savings deposits and share purchases with the 10-minute correction window, offline records, day summary. No withdrawal requests: members withdraw at any branch's office |
+| Collector recording | Savings deposits and share purchases with the 10-minute correction window, offline records, day summary, daily submission and approval with cash counted. No withdrawal requests: members withdraw at any branch's office |
 | Loans | Not implemented |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
@@ -342,3 +370,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Transaction SMS (PR #14):** every transaction queues a member SMS with the new balance through the outbox; `TransactionSmsSender` sends it after commit with retries and a dead-letter queue (`transaction_sms_queue`, `transaction_sms_dead_letter_queue`).
 - **Collector auth (owner, master `5837a4f`; fixed on master `806660c`, 2026-11-14):** collectors are staff accounts with only the COLLECTOR role; `collector-login` / `refresh-collector-token` accept only collectors and the staff endpoints refuse them; one active agent per branch; add-staff is ADMINISTRATOR only. The empty `collector` table is dropped by V36.
 - **Collector recording (PR #14):** `/api/collector` for collectors: branch member list, SAVINGS/SHARES payments that stay PENDING for 10 minutes with corrections (`collector_correction`), applied by `CollectorPaymentFinalizer` against 1015 Cash with Collectors with the member SMS; offline records applied on arrival; day summary. V37. Withdrawal requests were built and then removed at the owner's request (2026-11-15, V38): members withdraw at the nearest branch.
+- **Sessions and daily submission (PR #14, V39):** stored, rotating refresh tokens with stolen-token detection; `logout`; sessions ended at once on logout, daily approval, password reset, deactivation and role change. Collectors close the day with a submission of all unsubmitted payments; the branch's agent or an administrator approves with the cash counted (1015 → 1010, shortage stays in 1015, surplus to 2030); approval signs the collector out until tomorrow.

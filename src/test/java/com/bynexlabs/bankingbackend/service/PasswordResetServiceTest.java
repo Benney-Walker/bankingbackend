@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.enums.SessionEndReason;
 import com.bynexlabs.bankingbackend.DTO.auth.NewPassword;
 import com.bynexlabs.bankingbackend.DTO.sms.SmsResponse;
 import com.bynexlabs.bankingbackend.Repository.PasswordResetCodeRepo;
@@ -52,6 +53,9 @@ class PasswordResetServiceTest {
     private static final String RESET_TOKEN = "reset-token";
 
     @Mock
+    private SessionService sessionService;
+
+    @Mock
     private StaffRepo staffRepo;
 
     @Mock
@@ -75,7 +79,7 @@ class PasswordResetServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService, jwtUtility, staffService);
+        service = new PasswordResetService(staffRepo, resetCodeRepo, passwordEncoder, smsService, jwtUtility, staffService, sessionService);
         staff = Staff.builder()
                 .id(UUID.randomUUID())
                 .staffId(STAFF_ID)
@@ -253,6 +257,8 @@ class PasswordResetServiceTest {
 
         assertThat(passwordEncoder.matches("new-password-123", staff.getPassword())).isTrue();
         verify(staffRepo).save(staff);
+        // Owner decision 2026-11-15: a new password signs out every device.
+        verify(sessionService).endAllSessions(staff.getId(), SessionEndReason.PASSWORD_RESET);
     }
 
     @Test

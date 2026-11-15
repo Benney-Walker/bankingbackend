@@ -5,10 +5,13 @@ import com.bynexlabs.bankingbackend.DTO.collector.CollectorDaySummary;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorMemberResponse;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentResponse;
+import com.bynexlabs.bankingbackend.DTO.collector.CollectorSubmissionResponse;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
 import com.bynexlabs.bankingbackend.service.CollectorPaymentService;
+import com.bynexlabs.bankingbackend.service.CollectorSubmissionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.web.PagedModel;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +37,8 @@ import java.util.UUID;
 public class CollectorController {
 
     private final CollectorPaymentService paymentService;
+
+    private final CollectorSubmissionService submissionService;
 
     private final AuthenticatedStaffProvider staffProvider;
 
@@ -61,5 +66,22 @@ public class CollectorController {
     public CollectorDaySummary payments(@RequestParam(required = false)
                                         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return paymentService.daySummary(staffProvider.getStaff(), date);
+    }
+
+    /**
+     * Closes the day: submits every payment not yet handed in, for the branch's agent or an
+     * administrator to count and approve. No more payments can be recorded after this. Sending it
+     * again while waiting returns the same submission.
+     */
+    @PostMapping("/v1/submissions")
+    public CollectorSubmissionResponse submitDay() {
+        return submissionService.submit(staffProvider.getStaff());
+    }
+
+    /** The collector's own submissions and their outcome, newest first. */
+    @GetMapping("/v1/submissions")
+    public PagedModel<CollectorSubmissionResponse> submissions(@RequestParam(defaultValue = "0") int page,
+                                                               @RequestParam(defaultValue = "20") int size) {
+        return submissionService.ownSubmissions(staffProvider.getStaff(), page, size);
     }
 }

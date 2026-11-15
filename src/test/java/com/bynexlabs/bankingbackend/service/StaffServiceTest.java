@@ -1,5 +1,8 @@
 package com.bynexlabs.bankingbackend.service;
 
+import java.time.Instant;
+import org.springframework.security.core.GrantedAuthority;
+import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRolesRepo;
@@ -44,6 +47,9 @@ class StaffServiceTest {
     private static final String RAW_PASSWORD = "S3cure-pass!";
 
     @Mock
+    private SessionService sessionService;
+
+    @Mock
     private StaffRepo staffRepo;
 
     @Mock
@@ -70,7 +76,7 @@ class StaffServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService, branchRepo);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService, branchRepo, sessionService);
     }
 
     private StaffDetails newStaff(List<String> roles) {
@@ -190,5 +196,42 @@ class StaffServiceTest {
 
         verify(staffRepo).save(any(Staff.class));
         verify(branchRepo, never()).lockById(any());
+    }
+
+    // --- session cut-off (owner decision 2026-11-15) ---------------------------------------
+
+    private Staff activeAgentWithCutoff(Instant cutoff) {
+        Staff staff = Staff.builder().id(UUID.randomUUID()).staffId("900105").staffStatus(StaffStatus.ACTIVE)
+                .sessionsValidAfter(cutoff).build();
+        StaffRoles row = new StaffRoles();
+        row.setStaff(staff);
+        row.setRole(Roles.AGENT);
+        staff.setRoles(List.of(row));
+        when(staffRepo.findByStaffId("900105")).thenReturn(Optional.of(staff));
+        return staff;
+    }
+
+    @Test
+    void accessTokenIssuedBeforeTheSessionsEndedIsRefused() {
+        activeAgentWithCutoff(Instant.parse("2026-11-15T16:30:00Z"));
+
+        assertThatThrownBy(() -> staffService.getStaffRoles("900105", Instant.parse("2026-11-15T16:29:59Z")))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Session has ended");
+    }
+
+    @Test
+    void accessTokenIssuedAfterTheCutoffWorks() {
+        activeAgentWithCutoff(Instant.parse("2026-11-15T16:30:00Z"));
+
+        assertThat(staffService.getStaffRoles("900105", Instant.parse("2026-11-15T16:30:00Z")))
+                .extracting(GrantedAuthority::getAuthority).containsExactly("AGENT");
+    }
+
+    @Test
+    void noCutoffMeansAnyValidTokenWorks() {
+        activeAgentWithCutoff(null);
+
+        assertThat(staffService.getStaffRoles("900105", Instant.parse("2020-01-01T00:00:00Z"))).hasSize(1);
     }
 }

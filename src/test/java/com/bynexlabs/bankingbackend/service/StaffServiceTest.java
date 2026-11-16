@@ -1,5 +1,7 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
+import com.bynexlabs.bankingbackend.DTO.rabbitMQ.StaffSmsEvent;
 import java.time.Instant;
 import org.springframework.security.core.GrantedAuthority;
 import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
@@ -33,6 +35,7 @@ import com.bynexlabs.bankingbackend.Repository.BranchRepo;
 import com.bynexlabs.bankingbackend.models.Branch;
 import java.util.Optional;
 import java.util.UUID;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,7 +47,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class StaffServiceTest {
 
-    private static final String RAW_PASSWORD = "S3cure-pass!";
+    @Mock
+    private OutboxService outboxService;
 
     @Mock
     private SessionService sessionService;
@@ -69,14 +73,14 @@ class StaffServiceTest {
     @Captor
     private ArgumentCaptor<List<StaffRoles>> savedRoles;
 
-    // A real encoder, so the test proves the stored password is a BCrypt hash of the input.
+    // A real encoder, so the test proves the stored password is a BCrypt hash.
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     private StaffService staffService;
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService, branchRepo, sessionService);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService, branchRepo, sessionService, outboxService);
     }
 
     private StaffDetails newStaff(List<String> roles) {
@@ -86,7 +90,6 @@ class StaffServiceTest {
                 .dateOfBirth("1988-02-20")
                 .phoneNumber("0201234567")
                 .email("kofi.owusu@example.com")
-                .password(RAW_PASSWORD)
                 .residentialAddress("Takoradi")
                 .roles(roles)
                 .branchId(branch.getId())
@@ -150,8 +153,8 @@ class StaffServiceTest {
         Staff staff = savedStaff.getValue();
         assertThat(staff.getStaffId()).isEqualTo("900100");
         assertThat(staff.getStaffStatus()).isEqualTo(StaffStatus.ACTIVE);
-        assertThat(staff.getPassword()).isNotEqualTo(RAW_PASSWORD);
-        assertThat(passwordEncoder.matches(RAW_PASSWORD, staff.getPassword())).isTrue();
+        // Owner decision 2026-11-15: a random password nobody knows, stored as a BCrypt hash.
+        assertThat(staff.getPassword()).startsWith("$2");
 
         verify(staffRolesRepo).saveAll(savedRoles.capture());
         assertThat(savedRoles.getValue())
@@ -160,6 +163,38 @@ class StaffServiceTest {
         assertThat(savedRoles.getValue())
                 .allSatisfy(role -> assertThat(role.getStaff()).isSameAs(staff));
         assertThat(staff.getBranch()).isSameAs(branch);
+
+        // Owner decision 2026-11-15: the staff ID is texted to the new staff member.
+        ArgumentCaptor<StaffSmsEvent> sms = ArgumentCaptor.forClass(StaffSmsEvent.class);
+        verify(outboxService).enqueue(eq(RabbitMQConfig.EXCHANGE_NAME), eq(RabbitMQConfig.STAFF_SMS_ROUTING_KEY), sms.capture());
+        assertThat(sms.getValue().getStaffId()).isEqualTo("900100");
+        assertThat(sms.getValue().getPhoneNumber()).isEqualTo("0201234567");
+        assertThat(sms.getValue().getMessage()).isEqualTo("Hello Kofi, you've been added as staff at Tarkwa branch. "
+                + "Your staff ID is 900100. Set your password through password reset before you sign in.");
+    }
+
+    // Each new staff member gets a different random password.
+    @Test
+    void generatedPasswordsDiffer() {
+        when(idGenerator.generateId(Id_Type.STAFF_ID)).thenReturn("900101", "900102");
+        when(branchRepo.findById(branch.getId())).thenReturn(Optional.of(branch));
+
+        staffService.addNewStaff(newStaff(List.of("COLLECTOR")));
+        StaffDetails second = newStaff(List.of("COLLECTOR"));
+        second.setPhoneNumber("0201234568");
+        second.setEmail("other@example.com");
+        staffService.addNewStaff(second);
+
+        ArgumentCaptor<Staff> saved = ArgumentCaptor.forClass(Staff.class);
+        verify(staffRepo, org.mockito.Mockito.times(2)).save(saved.capture());
+        assertThat(saved.getAllValues().get(0).getPassword()).isNotEqualTo(saved.getAllValues().get(1).getPassword());
+    }
+
+    @Test
+    void failedValidationQueuesNoSms() {
+        assertThatThrownBy(() -> staffService.addNewStaff(newStaff(List.of("AGENT", "COLLECTOR"))))
+                .isInstanceOf(BadRequestException.class);
+        verifyNoInteractions(outboxService);
     }
 
     // Owner rule (2026-11-14): collectors are staff with only the COLLECTOR role.

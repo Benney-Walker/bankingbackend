@@ -50,6 +50,9 @@ class StaffRolesAndStatusServiceTest {
     private static final String TARGET = "900105";
 
     @Mock
+    private OutboxService outboxService;
+
+    @Mock
     private SessionService sessionService;
 
     @Mock
@@ -76,7 +79,7 @@ class StaffRolesAndStatusServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo, sessionService);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo, sessionService, outboxService);
     }
 
     private Staff staff(String staffId, StaffStatus status, Roles... roles) {

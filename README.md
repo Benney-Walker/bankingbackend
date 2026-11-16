@@ -9,7 +9,7 @@ Spring Boot API for a single credit union. It serves the staff desktop applicati
 - RabbitMQ for internal asynchronous work (account creation, KYC verification). All messages (account creation and KYC verification) go through a transactional outbox (`outbox_events`), so they're never lost if RabbitMQ is down
 - Cloudflare R2 (S3-compatible, private bucket `kyc-documents`) for KYC documents
 - AWS Textract for KYC OCR (provider not final). The KYC flow only talks to `OcrInterface` (`interfaces` package); `TextractOcrService` is the current implementation, so switching providers means adding one class
-- Vynfy for SMS (used for staff password-reset codes). Vynfy only accepts international numbers, so stored local numbers (`0241234567`) are sent as `+233241234567`
+- Vynfy for SMS (staff password-reset codes, new-staff welcome SMS, member transaction SMS). Vynfy only accepts international numbers, so stored local numbers (`0241234567`) are sent as `+233241234567`
 - JWT (JJWT) for staff authentication
 
 ## Prerequisites
@@ -67,6 +67,7 @@ Access is set by URL in `SecurityConfig`:
 | `/api/auth/**` | Public |
 | `/api/admin/**`, `/actuator/**` | ADMINISTRATOR |
 | `/api/staff/v1/add-staff` | ADMINISTRATOR |
+| `/api/branch/**` | ADMINISTRATOR, AGENT |
 | `/api/member/**`, `/api/staff/**` (other endpoints), `/api/transaction/**` | ADMINISTRATOR, AGENT |
 | `/api/collector/**` | COLLECTOR |
 | anything else | any logged-in staff member |
@@ -81,7 +82,8 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/auth/v1/password-reset/request-code` | Body `{ "staffId" }`. Texts a 6-digit code (Vynfy) to an ACTIVE staff member. Unknown or inactive staff ID → 400; again within a minute → 409; SMS failure → 500 |
 | POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
 | PUT | `/api/auth/v1/password-reset/new-password` | Body `{ "newPassword", "resetToken" }`. Password 8–72 characters, can't be the current one (409). Invalid reset token → 401 |
-| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR only. Create a staff member or collector in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`. `COLLECTOR` can't be combined with another role (400); a branch can have only one active agent (409). Password 8–72 characters |
+| POST | `/api/staff/v1/add-staff` | ADMINISTRATOR only. Create a staff member or collector in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`. `COLLECTOR` can't be combined with another role (400); a branch can have only one active agent (409). **No password** (owner decision 2026-11-15): the backend sets a random one nobody sees, and the new staff member is texted their staff ID; they set their own password through password reset before signing in. See "Adding staff" |
+| GET | `/api/branch/v1/all` | ADMINISTRATOR and AGENT. Every branch as `[{ "id", "name", "location" }]`, by name, for add-staff and member registration |
 | GET | `/api/staff/v1/all-staff` | Staff list: an agent sees their own branch's staff, an administrator everyone. Not paginated yet |
 | GET | `/api/staff/v1/staff-details/{staffId}` | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress` |
@@ -154,6 +156,16 @@ Owner decisions 2026-11-15, following standard practice for refresh tokens:
 - **Immediate effect.** Ending a session sets `staffs.sessions_valid_after`. Access tokens issued before it are refused on the next request (401), instead of working until they expire. Other devices whose sessions are still valid just refresh once.
 - **Housekeeping.** Expired tokens are deleted 30 days after expiry (`AUTH_REFRESH_TOKEN_CLEANUP_CRON`, default 03:30 daily).
 
+## Adding staff
+
+Owner decisions 2026-11-15 (desktop spec section 16):
+
+1. `POST /api/staff/v1/add-staff` takes no `password`. The backend stores a BCrypt hash of a random 256-bit password that nobody sees or receives, so the account can't be signed into yet.
+2. After the staff member is saved, they're texted (through the outbox and `staff_sms_queue`, sent only after the save commits; 3 retries, then `staff_sms_dead_letter_queue`):
+   *"Hello Ama, you've been added as staff at Tarkwa branch. Your staff ID is 900123. Set your password through password reset before you sign in."*
+3. They set their password with the reset flow (`request-code` → `confirm-code` → `new-password`), then sign in.
+4. `GET /api/branch/v1/all` lists branches for the branch step.
+
 ## Collectors
 
 Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` with a branch and **only** the `COLLECTOR` role. They're created with `add-staff` (ADMINISTRATOR only) and get a staff ID from the same counter as everyone else. The separate `collector` table and entity were removed; V36 drops the table.
@@ -165,7 +177,7 @@ Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` wit
 
 ## RabbitMQ messaging
 
-- Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue`, `kyc_verification_queue` and `transaction_sms_queue` (member SMS after each transaction; new queues are simply created on start-up).
+- Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue`, `kyc_verification_queue` `transaction_sms_queue` (member SMS after each transaction) and `staff_sms_queue` (new-staff welcome SMS); new queues are simply created on start-up.
 - **Retries and dead letters:** a message whose listener throws gets 3 retries (1 s, 2 s, 4 s). After that it's rejected and moved to its dead-letter queue (`default_share_account_dead_letter_queue`, `other_account_creation_dead_letter_queue`, `kyc_verification_dead_letter_queue` or `transaction_sms_dead_letter_queue`) through the exchange `cash_client_ecosystem_dead_letter`, keeping its original routing key. Failed messages never loop forever. Inspect dead-letter queues in the RabbitMQ management UI.
 - **Duplicates:** messages come from the outbox and carry its ID as the AMQP message ID. The account-creation consumers record that ID in `processed_messages` in the same transaction as the account, and skip a message they've already handled. The KYC consumer only acts on `PENDING` records, so a repeat is a no-op. The SMS consumer can't put an SMS in a database transaction, so it checks `processed_messages`, sends, then records the ID; a crash in between can send one SMS twice.
 

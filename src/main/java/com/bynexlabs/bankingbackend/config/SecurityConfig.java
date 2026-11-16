@@ -82,6 +82,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/admin/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/member/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
+                        // Branch list for add-staff and member registration (owner decision 2026-11-15).
+                        .requestMatchers("/api/branch/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
                         // Only administrators create staff, collectors included (owner decision 2026-11-14).
                         // Must come before the /api/staff/** rule, which would otherwise match first.
                         .requestMatchers("/api/staff/v1/add-staff").hasAuthority(Roles.ADMINISTRATOR.name())

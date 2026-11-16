@@ -1,5 +1,9 @@
 package com.bynexlabs.bankingbackend.service;
 
+import java.util.Base64;
+import java.security.SecureRandom;
+import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
+import com.bynexlabs.bankingbackend.DTO.rabbitMQ.StaffSmsEvent;
 import java.util.UUID;
 import java.util.Collection;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
@@ -66,6 +70,10 @@ public class StaffService {
     private final BranchRepo branchRepo;
 
     private final SessionService sessionService;
+
+    private final OutboxService outboxService;
+
+    private static final SecureRandom PASSWORD_RANDOM = new SecureRandom();
 
     // Upper bound on the staff list page size, so one request can't pull the whole table.
     static final int MAX_PAGE_SIZE = 100;
@@ -300,7 +308,9 @@ public class StaffService {
         }
 
         String newStaffId = idGenerator.generateId(Id_Type.STAFF_ID);
-        String hashedPassword = bCryptPasswordEncoder.encode(staffDetails.getPassword());
+        // Owner decision 2026-11-15: a random password nobody sees or receives. The staff member
+        // can't sign in until they set their own through password reset.
+        String hashedPassword = bCryptPasswordEncoder.encode(randomPassword());
 
         Staff staff = Staff.builder()
                 .staffId(newStaffId)
@@ -322,8 +332,29 @@ public class StaffService {
         saveStaffRoles(staff, roles);
         auditLogService.record(AuditAction.STAFF_CREATED, AuditTargetType.STAFF, newStaffId, "Roles " + roles);
 
-        //Asynchronous task will be here later
+        // Owner decision 2026-11-15: text the new staff member their staff ID. Queued in this
+        // transaction and sent after it commits (retried, dead-lettered after 3 failures).
+        outboxService.enqueue(RabbitMQConfig.EXCHANGE_NAME, RabbitMQConfig.STAFF_SMS_ROUTING_KEY,
+                StaffSmsEvent.builder()
+                        .staffId(newStaffId)
+                        .phoneNumber(staff.getPhoneNumber())
+                        .message(welcomeSms(staff.getFirstName(), branch.getName(), newStaffId))
+                        .build());
         return ResponseEntity.ok().build();
+    }
+
+    // Owner-chosen wording, 2026-11-15.
+    static String welcomeSms(String firstName, String branchName, String staffId) {
+        return "Hello " + firstName.trim() + ", you've been added as staff at " + branchName.trim()
+                + " branch. Your staff ID is " + staffId
+                + ". Set your password through password reset before you sign in.";
+    }
+
+    // 32 random bytes (256 bits) as 43 URL-safe characters, within BCrypt's 72-byte limit.
+    private static String randomPassword() {
+        byte[] bytes = new byte[32];
+        PASSWORD_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     // --------------------HELPERS------------------------

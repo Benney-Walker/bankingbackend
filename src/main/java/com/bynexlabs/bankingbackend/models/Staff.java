@@ -4,6 +4,7 @@ import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -63,6 +64,14 @@ public class Staff {
 
     @OneToMany(mappedBy = "staff")
     private List<StaffRoles> roles;
+
+    /**
+     * Access tokens issued before this moment are refused (V39). Written only by
+     * SessionService's bulk update, never by saving the entity, so a stale copy of the staff
+     * can't undo a sign-out.
+     */
+    @Column(name = "sessions_valid_after", insertable = false, updatable = false)
+    private Instant sessionsValidAfter;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "branch", nullable = false, updatable = false)

@@ -8,6 +8,7 @@ import com.bynexlabs.bankingbackend.Utility.JwtUtility;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
 import com.bynexlabs.bankingbackend.exception.InternalServerError;
+import com.bynexlabs.bankingbackend.enums.SessionEndReason;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.interfaces.SmsInterface;
@@ -50,6 +51,8 @@ public class PasswordResetService {
     private final JwtUtility jwtUtility;
 
     private final StaffService staffService;
+
+    private final SessionService sessionService;
 
     public void requestResetCode(String staffId) {
         Staff staff = staffRepo.findByStaffId(staffId)
@@ -117,6 +120,7 @@ public class PasswordResetService {
         return jwtUtility.generateResetToken(staffId);
     }
 
+    @Transactional
     public void saveNewPassword(NewPassword newPassword) {
         String resetToken = newPassword.getResetToken();
 
@@ -139,6 +143,8 @@ public class PasswordResetService {
         staff.setPassword(hashedPassword);
         staff.setUpdatedAt(LocalDateTime.now());
         staffRepo.save(staff);
+        // Owner decision 2026-11-15: a new password signs the staff member out on every device.
+        sessionService.endAllSessions(staff.getId(), SessionEndReason.PASSWORD_RESET);
     }
 
     // Wording approved by the owner (2026-11-07).

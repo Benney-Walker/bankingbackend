@@ -40,6 +40,17 @@ public class AuthController {
         return ResponseEntity.ok(authService.refreshCollectorAccessToken(refreshRequest));
     }
 
+    /**
+     * Signs out the device that holds this refresh token (desktop and collector apps alike):
+     * the session's refresh tokens stop working and its access tokens are refused at once.
+     * Always 204, whether or not the token was known.
+     */
+    @PostMapping("/v1/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest refreshRequest) {
+        authService.logout(refreshRequest);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/v1/password-reset/request-code")
     public ResponseEntity<?> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
         passwordResetService.requestResetCode(request.getStaffId());

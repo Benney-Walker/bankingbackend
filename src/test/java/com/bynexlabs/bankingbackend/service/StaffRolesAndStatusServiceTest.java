@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.service;
 
+import com.bynexlabs.bankingbackend.enums.SessionEndReason;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffResponse;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffRolesRequest;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
@@ -49,6 +50,12 @@ class StaffRolesAndStatusServiceTest {
     private static final String TARGET = "900105";
 
     @Mock
+    private OutboxService outboxService;
+
+    @Mock
+    private SessionService sessionService;
+
+    @Mock
     private StaffRepo staffRepo;
 
     @Mock
@@ -72,7 +79,7 @@ class StaffRolesAndStatusServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo, sessionService, outboxService);
     }
 
     private Staff staff(String staffId, StaffStatus status, Roles... roles) {
@@ -134,6 +141,8 @@ class StaffRolesAndStatusServiceTest {
         assertThat(agent.getUpdatedAt()).isAfter(LocalDateTime.of(2026, 1, 5, 9, 0));
         verify(staffRepo).save(agent);
         verify(auditLogService).record(AuditAction.STAFF_DEACTIVATED, AuditTargetType.STAFF, TARGET, null);
+        // Owner decision 2026-11-15: stored sessions are revoked too.
+        verify(sessionService).endAllSessions(agent.getId(), SessionEndReason.DEACTIVATED);
     }
 
     @Test
@@ -144,7 +153,7 @@ class StaffRolesAndStatusServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(StaffStatus.INACTIVE);
         verify(staffRepo, never()).save(any());
-        verifyNoInteractions(auditLogService);
+        verifyNoInteractions(auditLogService, sessionService);
     }
 
     @Test
@@ -212,6 +221,8 @@ class StaffRolesAndStatusServiceTest {
 
         verify(staffRolesRepo).saveAll(rows.capture());
         assertThat(rows.getValue()).isEmpty();
+        // Owner decision 2026-11-15: a role change signs the staff member out everywhere.
+        verify(sessionService).endAllSessions(target.getId(), SessionEndReason.ROLES_CHANGED);
     }
 
     // Owner rule (2026-11-14): COLLECTOR is exclusive.

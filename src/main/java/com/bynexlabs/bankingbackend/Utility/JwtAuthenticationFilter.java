@@ -54,7 +54,9 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
             String username = jwtUtility.extractUsername(token);
             // Staff roles are checked from db on every request
             // Therefore changes on roles has no effect on system
-            List<GrantedAuthority> authorities = staffService.getStaffRoles(username);
+            // A token issued before the staff member's sessions were ended (logout, daily approval,
+            // password reset...) is refused here.
+            List<GrantedAuthority> authorities = staffService.getStaffRoles(username, jwtUtility.extractIssuedAt(token));
 
             if (authorities != null && !authorities.isEmpty()) {
 

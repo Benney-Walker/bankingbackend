@@ -1,6 +1,5 @@
 package com.bynexlabs.bankingbackend.DTO.staff;
 
-import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
@@ -9,11 +8,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** add-staff uses the same password rule as password reset: 8 to 72 characters. */
+/** add-staff takes no password (owner decision 2026-11-15): the backend sets a random one. */
 class StaffDetailsValidationTest {
 
     private static ValidatorFactory factory;
@@ -30,27 +29,22 @@ class StaffDetailsValidationTest {
         factory.close();
     }
 
-    private Set<ConstraintViolation<StaffDetails>> violationsForPassword(String password) {
-        StaffDetails details = StaffDetails.builder()
+    private static StaffDetails.StaffDetailsBuilder complete() {
+        return StaffDetails.builder()
                 .firstName("Kofi").lastName("Owusu").dateOfBirth("1988-02-20")
-                .phoneNumber("0201234567").email("kofi@example.com").password(password)
-                .residentialAddress("Takoradi").roles(List.of("AGENT"))
-                .build();
-        return validator.validateProperty(details, "password");
+                .phoneNumber("0201234567").email("kofi@example.com")
+                .residentialAddress("Takoradi").roles(List.of("AGENT")).branchId(UUID.randomUUID());
     }
 
     @Test
-    void sevenCharacterPasswordIsRejected() {
-        assertThat(violationsForPassword("short7!")).isNotEmpty();
+    void completeDetailsWithoutAPasswordAreValid() {
+        assertThat(validator.validate(complete().build())).isEmpty();
     }
 
     @Test
-    void eightCharacterPasswordIsAccepted() {
-        assertThat(violationsForPassword("eight8!!")).isEmpty();
-    }
-
-    @Test
-    void passwordLongerThanBcryptLimitIsRejected() {
-        assertThat(violationsForPassword("x".repeat(73))).isNotEmpty();
+    void branchIsStillRequired() {
+        assertThat(validator.validate(complete().branchId(null).build()))
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("branchId");
     }
 }

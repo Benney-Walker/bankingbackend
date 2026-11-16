@@ -77,6 +77,20 @@ class TransactionServiceTest {
                 .isInstanceOf(ConflictException.class);
     }
 
+    // A transfer retry must name the same destination too.
+    @Test
+    void sameKeyWithADifferentDestinationIsAConflict() {
+        Transaction transfer = recorded();
+        transfer.setTransactionType(TransactionType.TRANSFER);
+        transfer.setCounterpartyAccount(MemberAccount.builder().accountNumber("1000000002").build());
+        when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(transfer));
+
+        assertThat(transactionService.findReplay("key-1", TransactionType.TRANSFER, "1000000001", "1000000002", new BigDecimal("50")))
+                .containsSame(transfer);
+        assertThatThrownBy(() -> transactionService.findReplay("key-1", TransactionType.TRANSFER, "1000000001", "1000000003", new BigDecimal("50")))
+                .isInstanceOf(ConflictException.class);
+    }
+
     @Test
     void blankOrOverlongKeyIsRejected() {
         assertThatThrownBy(() -> transactionService.findReplay(" ", TransactionType.DEPOSIT, "1000000001", BigDecimal.ONE))

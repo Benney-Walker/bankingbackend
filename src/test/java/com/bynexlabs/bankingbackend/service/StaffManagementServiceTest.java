@@ -47,6 +47,12 @@ class StaffManagementServiceTest {
     private static final String STAFF_ID = "900105";
 
     @Mock
+    private OutboxService outboxService;
+
+    @Mock
+    private SessionService sessionService;
+
+    @Mock
     private StaffRepo staffRepo;
 
     @Mock
@@ -65,7 +71,7 @@ class StaffManagementServiceTest {
 
     @BeforeEach
     void setUp() {
-        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo);
+        staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, new BCryptPasswordEncoder(), auditLogService, branchRepo, sessionService, outboxService);
     }
 
     private Staff existingStaff() {
@@ -183,7 +189,7 @@ class StaffManagementServiceTest {
     void invalidDateOfBirthIsBadRequestOnAddAndUpdate() {
         StaffDetails details = StaffDetails.builder()
                 .firstName("Ama").lastName("Mensah").dateOfBirth("20/02/1988")
-                .phoneNumber("0241234567").email("ama@example.com").password("pw")
+                .phoneNumber("0241234567").email("ama@example.com")
                 .residentialAddress("Tarkwa").roles(List.of("AGENT"))
                 .build();
         assertThatThrownBy(() -> staffService.addNewStaff(details))

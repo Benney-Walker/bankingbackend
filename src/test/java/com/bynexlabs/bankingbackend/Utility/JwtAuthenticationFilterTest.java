@@ -17,6 +17,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +45,8 @@ class JwtAuthenticationFilterTest {
     @InjectMocks
     private JwtAuthenticationFilter filter;
 
+    private static final Instant ISSUED = Instant.parse("2026-11-15T08:00:00Z");
+
     @BeforeEach
     @AfterEach
     void clearSecurityContext() {
@@ -59,12 +62,13 @@ class JwtAuthenticationFilterTest {
     private void givenValidTokenFor(String staffId) {
         when(jwtUtility.isAccessToken(TOKEN)).thenReturn(true);
         when(jwtUtility.extractUsername(TOKEN)).thenReturn(staffId);
+        when(jwtUtility.extractIssuedAt(TOKEN)).thenReturn(ISSUED);
     }
 
     @Test
     void activeStaffIsAuthenticatedWithRolesFromTheDatabase() throws Exception {
         givenValidTokenFor("900100");
-        when(staffService.getStaffRoles("900100")).thenReturn(List.<GrantedAuthority>of(new SimpleGrantedAuthority("AGENT")));
+        when(staffService.getStaffRoles("900100", ISSUED)).thenReturn(List.<GrantedAuthority>of(new SimpleGrantedAuthority("AGENT")));
 
         runFilterWithToken();
 
@@ -78,7 +82,7 @@ class JwtAuthenticationFilterTest {
     @Test
     void tokenRolesAreIgnored() throws Exception {
         givenValidTokenFor("900110");
-        when(staffService.getStaffRoles("900110")).thenReturn(List.<GrantedAuthority>of(new SimpleGrantedAuthority("COLLECTOR")));
+        when(staffService.getStaffRoles("900110", ISSUED)).thenReturn(List.<GrantedAuthority>of(new SimpleGrantedAuthority("COLLECTOR")));
 
         runFilterWithToken();
 
@@ -87,10 +91,21 @@ class JwtAuthenticationFilterTest {
         verify(jwtUtility, never()).extractRoles(any());
     }
 
+    // Sessions ended after the token was issued (logout, daily approval, password reset...).
+    @Test
+    void tokenFromAnEndedSessionIsNotAuthenticated() throws Exception {
+        givenValidTokenFor("900110");
+        when(staffService.getStaffRoles("900110", ISSUED)).thenThrow(new UnauthorizedException("Session has ended"));
+
+        runFilterWithToken();
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
     @Test
     void inactiveOrUnknownStaffIsNotAuthenticated() throws Exception {
         givenValidTokenFor("900101");
-        when(staffService.getStaffRoles("900101")).thenThrow(new UnauthorizedException("Staff account inactive or not found"));
+        when(staffService.getStaffRoles("900101", ISSUED)).thenThrow(new UnauthorizedException("Staff account inactive or not found"));
 
         runFilterWithToken();
 

@@ -1,12 +1,14 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
+import com.bynexlabs.bankingbackend.DTO.auth.TokenResponse;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
 import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.models.Staff;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -20,9 +22,11 @@ import com.bynexlabs.bankingbackend.models.StaffRoles;
 import org.springframework.security.authentication.BadCredentialsException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -40,41 +44,67 @@ class AuthServiceTest {
     @Mock
     private AuthenticationManager authenticationManager;
 
+    @Mock
+    private SessionService sessionService;
+
+    @Mock
+    private CollectorSubmissionService collectorSubmissionService;
+
     @InjectMocks
     private AuthService authService;
 
-    @Test
-    void refreshRejectsTokenThatIsNotAValidRefreshToken() {
-        when(jwtUtility.isRefreshToken("not-a-refresh-token")).thenReturn(false);
+    // --- refresh: SessionService swaps the token; AuthService issues the access token -----
 
-        assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("not-a-refresh-token")))
-                .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Invalid refresh token");
-        verifyNoInteractions(staffService);
+    @Test
+    void staffRefreshReturnsANewAccessAndRefreshToken() {
+        when(sessionService.rotate(eq("refresh-token"), any()))
+                .thenReturn(new SessionService.Rotation("900105", List.of(Roles.AGENT), "next-refresh"));
+        when(jwtUtility.generateAccessToken("900105", List.of("AGENT"))).thenReturn("new-access");
+
+        TokenResponse response = authService.refreshStaffAccessToken(new RefreshRequest("refresh-token"));
+
+        assertThat(response.authToken()).isEqualTo("new-access");
+        assertThat(response.refreshToken()).isEqualTo("next-refresh");
     }
 
     @Test
-    void refreshRejectsTokenForUnknownStaff() {
-        when(jwtUtility.isRefreshToken("refresh-token")).thenReturn(true);
-        when(jwtUtility.extractUsername("refresh-token")).thenReturn("900199");
-        when(staffService.getStaffDetails("900199")).thenReturn(null);
-
-        assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("refresh-token")))
-                .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Invalid or expired refresh token");
-        verify(staffService).getStaffDetails("900199");
-    }
-
-    @Test
-    void refreshRejectsInactiveStaff() {
-        Staff inactive = Staff.builder().staffId("900150").staffStatus(StaffStatus.INACTIVE).build();
-        when(jwtUtility.isRefreshToken("refresh-token")).thenReturn(true);
-        when(jwtUtility.extractUsername("refresh-token")).thenReturn("900150");
-        when(staffService.getStaffDetails("900150")).thenReturn(inactive);
+    void refreshFailuresFromTheSessionArePassedOn() {
+        when(sessionService.rotate(eq("refresh-token"), any()))
+                .thenThrow(new UnauthorizedException("Invalid or expired refresh token"));
 
         assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("refresh-token")))
                 .isInstanceOf(UnauthorizedException.class);
         verify(jwtUtility, never()).generateAccessToken(any(), any());
+    }
+
+    // Each endpoint tells SessionService who may refresh there.
+    @Test
+    @SuppressWarnings("unchecked")
+    void staffRefreshOnlyAllowsNonCollectorsAndCollectorRefreshOnlyCollectors() {
+        when(sessionService.rotate(eq("staff-token"), any()))
+                .thenReturn(new SessionService.Rotation("900105", List.of(Roles.AGENT), "a"));
+        when(sessionService.rotate(eq("collector-token"), any()))
+                .thenReturn(new SessionService.Rotation("900110", List.of(Roles.COLLECTOR), "b"));
+
+        authService.refreshStaffAccessToken(new RefreshRequest("staff-token"));
+        authService.refreshCollectorAccessToken(new RefreshRequest("collector-token"));
+
+        ArgumentCaptor<Predicate<List<Roles>>> staffRule = ArgumentCaptor.forClass(Predicate.class);
+        verify(sessionService).rotate(eq("staff-token"), staffRule.capture());
+        assertThat(staffRule.getValue().test(List.of(Roles.AGENT))).isTrue();
+        assertThat(staffRule.getValue().test(List.of(Roles.COLLECTOR))).isFalse();
+
+        ArgumentCaptor<Predicate<List<Roles>>> collectorRule = ArgumentCaptor.forClass(Predicate.class);
+        verify(sessionService).rotate(eq("collector-token"), collectorRule.capture());
+        assertThat(collectorRule.getValue().test(List.of(Roles.COLLECTOR))).isTrue();
+        assertThat(collectorRule.getValue().test(List.of(Roles.ADMINISTRATOR))).isFalse();
+    }
+
+    @Test
+    void logoutEndsTheSession() {
+        authService.logout(new RefreshRequest("refresh-token"));
+
+        verify(sessionService).endSession("refresh-token");
     }
 
     // --- staff vs collector sign-in (owner decision 2026-11-14) ---
@@ -101,7 +131,7 @@ class AuthServiceTest {
     void collectorLoginIssuesTokensForACollector() {
         when(staffService.getStaffDetails("900110")).thenReturn(staffWithRoles("900110", Roles.COLLECTOR));
         when(jwtUtility.generateAccessToken("900110", List.of("COLLECTOR"))).thenReturn("access");
-        when(jwtUtility.generateRefreshToken("900110")).thenReturn("refresh");
+        when(sessionService.startSession(any(Staff.class))).thenReturn("refresh");
 
         LoginResponse response = authService.collectorAuthentication(login("900110"));
 
@@ -142,35 +172,17 @@ class AuthServiceTest {
         verifyNoInteractions(staffService);
     }
 
+    // Owner decision 2026-11-15: once today's submission is approved, no sign-in until tomorrow.
     @Test
-    void collectorRefreshIssuesANewAccessToken() {
-        when(jwtUtility.isRefreshToken("refresh-token")).thenReturn(true);
-        when(jwtUtility.extractUsername("refresh-token")).thenReturn("900110");
-        when(staffService.getStaffDetails("900110")).thenReturn(staffWithRoles("900110", Roles.COLLECTOR));
-        when(jwtUtility.generateAccessToken("900110", List.of("COLLECTOR"))).thenReturn("new-access");
+    void collectorClosedForTodayCantSignIn() {
+        Staff collector = staffWithRoles("900110", Roles.COLLECTOR);
+        collector.setId(java.util.UUID.randomUUID());
+        when(staffService.getStaffDetails("900110")).thenReturn(collector);
+        when(collectorSubmissionService.isClosedForToday(collector.getId())).thenReturn(true);
 
-        assertThat(authService.refreshCollectorAccessToken(new RefreshRequest("refresh-token"))).isEqualTo("new-access");
-    }
-
-    @Test
-    void collectorRefreshRefusesAStaffToken() {
-        when(jwtUtility.isRefreshToken("refresh-token")).thenReturn(true);
-        when(jwtUtility.extractUsername("refresh-token")).thenReturn("900105");
-        when(staffService.getStaffDetails("900105")).thenReturn(staffWithRoles("900105", Roles.AGENT));
-
-        assertThatThrownBy(() -> authService.refreshCollectorAccessToken(new RefreshRequest("refresh-token")))
-                .isInstanceOf(UnauthorizedException.class);
-        verify(jwtUtility, never()).generateAccessToken(any(), any());
-    }
-
-    @Test
-    void staffRefreshRefusesACollectorToken() {
-        when(jwtUtility.isRefreshToken("refresh-token")).thenReturn(true);
-        when(jwtUtility.extractUsername("refresh-token")).thenReturn("900110");
-        when(staffService.getStaffDetails("900110")).thenReturn(staffWithRoles("900110", Roles.COLLECTOR));
-
-        assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("refresh-token")))
-                .isInstanceOf(UnauthorizedException.class);
-        verify(jwtUtility, never()).generateAccessToken(any(), any());
+        assertThatThrownBy(() -> authService.collectorAuthentication(login("900110")))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Your collections for today have been approved. You can sign in again tomorrow");
+        verifyNoInteractions(sessionService);
     }
 }

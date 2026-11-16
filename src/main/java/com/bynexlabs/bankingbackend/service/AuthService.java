@@ -3,11 +3,10 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.auth.LoginRequest;
 import com.bynexlabs.bankingbackend.DTO.auth.LoginResponse;
 import com.bynexlabs.bankingbackend.DTO.auth.RefreshRequest;
+import com.bynexlabs.bankingbackend.DTO.auth.TokenResponse;
 import com.bynexlabs.bankingbackend.Utility.JwtUtility;
 import com.bynexlabs.bankingbackend.enums.Roles;
-import com.bynexlabs.bankingbackend.enums.StaffStatus;
 import com.bynexlabs.bankingbackend.exception.ForbiddenException;
-import com.bynexlabs.bankingbackend.exception.UnauthorizedException;
 import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -16,12 +15,17 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Login and token refresh. Collectors are staff accounts with only the COLLECTOR role (owner
  * decision 2026-11-14), but they sign in through their own endpoints: the collector app uses
  * collector-login / refresh-collector-token, which only accept collectors, and the desktop app
  * uses staff-login / refresh-staff-token, which refuse them.
+ *
+ * Refresh tokens are kept on the server and swapped on every refresh; logout ends the session
+ * (SessionService). A collector whose daily submission was approved today can't sign in again
+ * until tomorrow (owner decision 2026-11-15).
  */
 @Service
 @RequiredArgsConstructor
@@ -32,6 +36,10 @@ public class AuthService {
     private final JwtUtility jwtUtility;
 
     private final AuthenticationManager authenticationManager;
+
+    private final SessionService sessionService;
+
+    private final CollectorSubmissionService collectorSubmissionService;
 
     public ResponseEntity<?> staffAuthentication(LoginRequest loginRequest) {
         Staff staff = authenticate(loginRequest);
@@ -46,24 +54,24 @@ public class AuthService {
         if (!isCollector(staff)) {
             throw new ForbiddenException("Only collector accounts can sign in here");
         }
+        if (collectorSubmissionService.isClosedForToday(staff.getId())) {
+            throw new ForbiddenException("Your collections for today have been approved. You can sign in again tomorrow");
+        }
         return issueTokens(staff);
     }
 
-    public String refreshStaffAccessToken(RefreshRequest refreshRequest) {
-        Staff staff = activeStaffForRefresh(refreshRequest);
-        // A collector's refresh token can't be swapped for a desktop session.
-        if (isCollector(staff)) {
-            throw new UnauthorizedException("Invalid or expired refresh token");
-        }
-        return jwtUtility.generateAccessToken(staff.getStaffId(), roleNames(staff));
+    /** A collector's refresh token can't be swapped for a desktop session. */
+    public TokenResponse refreshStaffAccessToken(RefreshRequest refreshRequest) {
+        return refresh(refreshRequest, roles -> !roles.contains(Roles.COLLECTOR));
     }
 
-    public String refreshCollectorAccessToken(RefreshRequest refreshRequest) {
-        Staff staff = activeStaffForRefresh(refreshRequest);
-        if (!isCollector(staff)) {
-            throw new UnauthorizedException("Invalid or expired refresh token");
-        }
-        return jwtUtility.generateAccessToken(staff.getStaffId(), roleNames(staff));
+    public TokenResponse refreshCollectorAccessToken(RefreshRequest refreshRequest) {
+        return refresh(refreshRequest, roles -> roles.contains(Roles.COLLECTOR));
+    }
+
+    /** Signs out this device. Always succeeds, so it reveals nothing about the token. */
+    public void logout(RefreshRequest refreshRequest) {
+        sessionService.endSession(refreshRequest.getRefreshToken());
     }
 
     // -----------------HELPERS----------------
@@ -84,21 +92,16 @@ public class AuthService {
                 .staffName(staff.getFirstName().toUpperCase() + " " + staff.getLastName().toUpperCase())
                 .roles(roles)
                 .authToken(jwtUtility.generateAccessToken(staff.getStaffId(), roles))
-                .refreshToken(jwtUtility.generateRefreshToken(staff.getStaffId()))
+                .refreshToken(sessionService.startSession(staff))
                 .build();
     }
 
-    private Staff activeStaffForRefresh(RefreshRequest refreshRequest) {
-        String refreshToken = refreshRequest.getRefreshToken();
-        if (!jwtUtility.isRefreshToken(refreshToken)) {
-            throw new UnauthorizedException("Invalid refresh token");
-        }
-        Staff staff = staffService.getStaffDetails(jwtUtility.extractUsername(refreshToken));
-        // An inactive staff member must not be able to mint new access tokens.
-        if (staff == null || staff.getStaffStatus() != StaffStatus.ACTIVE) {
-            throw new UnauthorizedException("Invalid or expired refresh token");
-        }
-        return staff;
+    // SessionService checks the token, that the staff member is still active, and that they may
+    // refresh on this endpoint, then swaps the token.
+    private TokenResponse refresh(RefreshRequest refreshRequest, Predicate<List<Roles>> allowed) {
+        SessionService.Rotation rotation = sessionService.rotate(refreshRequest.getRefreshToken(), allowed);
+        List<String> roles = rotation.roles().stream().map(Enum::name).toList();
+        return new TokenResponse(jwtUtility.generateAccessToken(rotation.staffId(), roles), rotation.refreshToken());
     }
 
     private static boolean isCollector(Staff staff) {

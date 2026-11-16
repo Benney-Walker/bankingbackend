@@ -24,10 +24,15 @@ public class RabbitMQConfig {
     public static final String DEFAULT_SHARES_ACCOUNT_QUEUE_NAME = "default_share_account_queue";
     public static final String OTHER_ACCOUNT_CREATION_QUEUE_NAME = "other_account_creation_queue";
     public static final String KYC_VERIFICATION_QUEUE_NAME = "kyc_verification_queue";
+    // Member SMS after every transaction (owner decision 2026-11-14).
+    public static final String TRANSACTION_SMS_QUEUE_NAME = "transaction_sms_queue";
+    public static final String STAFF_SMS_QUEUE_NAME = "staff_sms_queue";
 
     public static final String DEFAULT_SHARES_ACCOUNT_DEAD_LETTER_QUEUE_NAME = "default_share_account_dead_letter_queue";
     public static final String OTHER_ACCOUNT_CREATION_DEAD_LETTER_QUEUE_NAME = "other_account_creation_dead_letter_queue";
     public static final String KYC_VERIFICATION_DEAD_LETTER_QUEUE_NAME = "kyc_verification_dead_letter_queue";
+    public static final String TRANSACTION_SMS_DEAD_LETTER_QUEUE_NAME = "transaction_sms_dead_letter_queue";
+    public static final String STAFF_SMS_DEAD_LETTER_QUEUE_NAME = "staff_sms_dead_letter_queue";
 
     /************************************************
      ROUTING
@@ -35,6 +40,8 @@ public class RabbitMQConfig {
     public static final String DEFAULT_SHARE_ACCOUNT_ROUTING_KEY = "default_share_account_routing_key";
     public static final String OTHER_ACCOUNT_CREATION_ROUTING_KEY = "other_account_creation_routing_key";
     public static final String KYC_VERIFICATION_ROUTING_KEY = "kyc_verification_routing_key";
+    public static final String TRANSACTION_SMS_ROUTING_KEY = "transaction_sms_routing_key";
+    public static final String STAFF_SMS_ROUTING_KEY = "staff_sms_routing_key";
 
 
     /************************************************
@@ -65,6 +72,21 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue transactionSmsQueue() {
+        return QueueBuilder.durable(TRANSACTION_SMS_QUEUE_NAME)
+                .deadLetterExchange(DEAD_LETTER_EXCHANGE_NAME)
+                .build();
+    }
+
+    // New staff member's welcome SMS with their staff ID (owner decision 2026-11-15).
+    @Bean
+    public Queue staffSmsQueue() {
+        return QueueBuilder.durable(STAFF_SMS_QUEUE_NAME)
+                .deadLetterExchange(DEAD_LETTER_EXCHANGE_NAME)
+                .build();
+    }
+
+    @Bean
     public Queue defaultShareAccountDeadLetterQueue() {
         return QueueBuilder.durable(DEFAULT_SHARES_ACCOUNT_DEAD_LETTER_QUEUE_NAME).build();
     }
@@ -77,6 +99,16 @@ public class RabbitMQConfig {
     @Bean
     public Queue kycVerificationDeadLetterQueue() {
         return QueueBuilder.durable(KYC_VERIFICATION_DEAD_LETTER_QUEUE_NAME).build();
+    }
+
+    @Bean
+    public Queue transactionSmsDeadLetterQueue() {
+        return QueueBuilder.durable(TRANSACTION_SMS_DEAD_LETTER_QUEUE_NAME).build();
+    }
+
+    @Bean
+    public Queue staffSmsDeadLetterQueue() {
+        return QueueBuilder.durable(STAFF_SMS_DEAD_LETTER_QUEUE_NAME).build();
     }
 
     /************************************************
@@ -97,6 +129,16 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(kycVerificationQueue).to(exchange).with(KYC_VERIFICATION_ROUTING_KEY);
     }
 
+    @Bean
+    public Binding transactionSmsBinding(Queue transactionSmsQueue, TopicExchange exchange) {
+        return BindingBuilder.bind(transactionSmsQueue).to(exchange).with(TRANSACTION_SMS_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding staffSmsBinding(Queue staffSmsQueue, TopicExchange exchange) {
+        return BindingBuilder.bind(staffSmsQueue).to(exchange).with(STAFF_SMS_ROUTING_KEY);
+    }
+
     // Dead-lettered messages keep their original routing key, so each dead-letter queue is
     // bound with the same key as the queue it backs up.
     @Bean
@@ -115,6 +157,18 @@ public class RabbitMQConfig {
     public Binding kycVerificationDeadLetterBinding() {
         return BindingBuilder.bind(kycVerificationDeadLetterQueue()).to(deadLetterExchange())
                 .with(KYC_VERIFICATION_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding transactionSmsDeadLetterBinding() {
+        return BindingBuilder.bind(transactionSmsDeadLetterQueue()).to(deadLetterExchange())
+                .with(TRANSACTION_SMS_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding staffSmsDeadLetterBinding() {
+        return BindingBuilder.bind(staffSmsDeadLetterQueue()).to(deadLetterExchange())
+                .with(STAFF_SMS_ROUTING_KEY);
     }
 
     /************************************************

@@ -26,12 +26,12 @@ class BranchServiceTest {
     private BranchService branchService;
 
     @Test
-    void listsEveryBranchByNameWithIdNameAndLocation() {
+    void listsEveryBranchByNameWithOnlyIdAndName() {
         Branch tarkwa = Branch.builder().id(UUID.randomUUID()).name("Tarkwa").location("Tarkwa, Western Region").build();
         when(branchRepo.findAll(Sort.by(Sort.Direction.ASC, "name"))).thenReturn(List.of(tarkwa));
 
         List<BranchResponse> branches = branchService.listBranches();
 
-        assertThat(branches).containsExactly(new BranchResponse(tarkwa.getId(), "Tarkwa", "Tarkwa, Western Region"));
+        assertThat(branches).containsExactly(new BranchResponse(tarkwa.getId(), "Tarkwa"));
     }
 }

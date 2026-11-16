@@ -83,7 +83,7 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
 | PUT | `/api/auth/v1/password-reset/new-password` | Body `{ "newPassword", "resetToken" }`. Password 8–72 characters, can't be the current one (409). Invalid reset token → 401 |
 | POST | `/api/staff/v1/add-staff` | ADMINISTRATOR only. Create a staff member or collector in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`. `COLLECTOR` can't be combined with another role (400); a branch can have only one active agent (409). **No password** (owner decision 2026-11-15): the backend sets a random one nobody sees, and the new staff member is texted their staff ID; they set their own password through password reset before signing in. See "Adding staff" |
-| GET | `/api/branch/v1/all` | ADMINISTRATOR and AGENT. Every branch as `[{ "id", "name", "location" }]`, by name, for add-staff and member registration |
+| GET | `/api/branch/v1/all` | ADMINISTRATOR and AGENT. Every branch as `[{ "id", "name" }]` (owner decision 2026-11-16), by name, for add-staff and member registration |
 | GET | `/api/staff/v1/all-staff` | Staff list: an agent sees their own branch's staff, an administrator everyone. Not paginated yet |
 | GET | `/api/staff/v1/staff-details/{staffId}` | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress` |

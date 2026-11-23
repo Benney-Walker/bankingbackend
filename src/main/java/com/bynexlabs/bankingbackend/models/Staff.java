@@ -73,6 +73,16 @@ public class Staff {
     @Column(name = "sessions_valid_after", insertable = false, updatable = false)
     private Instant sessionsValidAfter;
 
+    /**
+     * A collector's registered phone: the app's install ID (V42, owner decisions 2026-11-23).
+     * Written only by CollectorDeviceService's bulk updates, like sessionsValidAfter.
+     */
+    @Column(name = "registered_device_id", insertable = false, updatable = false, length = 100)
+    private String registeredDeviceId;
+
+    @Column(name = "device_registered_at", insertable = false, updatable = false)
+    private LocalDateTime deviceRegisteredAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "branch", nullable = false, updatable = false)
     private Branch branch;

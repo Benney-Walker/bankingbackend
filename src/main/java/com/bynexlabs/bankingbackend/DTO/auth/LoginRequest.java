@@ -1,6 +1,7 @@
 package com.bynexlabs.bankingbackend.DTO.auth;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,4 +17,11 @@ public class LoginRequest {
 
     @NotBlank(message = "password cannot be null")
     private String password;
+
+    /**
+     * The collector app's install ID (owner decision 2026-11-23): required at collector-login,
+     * ignored at staff-login.
+     */
+    @Size(max = 100, message = "deviceId is at most 100 characters")
+    private String deviceId;
 }

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +25,16 @@ public interface StaffRepo extends JpaRepository<Staff, UUID> {
     @Modifying
     @Query("update Staff s set s.sessionsValidAfter = :cutoff where s.id = :id")
     int cutSessions(@Param("id") UUID id, @Param("cutoff") Instant cutoff);
+
+    /** Registers a collector's phone if none is registered yet. Returns 1 when it did. */
+    @Modifying
+    @Query("update Staff s set s.registeredDeviceId = :deviceId, s.deviceRegisteredAt = :at where s.id = :id and s.registeredDeviceId is null")
+    int registerDevice(@Param("id") UUID id, @Param("deviceId") String deviceId, @Param("at") LocalDateTime at);
+
+    /** Clears a collector's registered phone. Returns 1 when one was registered. */
+    @Modifying
+    @Query("update Staff s set s.registeredDeviceId = null, s.deviceRegisteredAt = null where s.id = :id and s.registeredDeviceId is not null")
+    int releaseDevice(@Param("id") UUID id);
 
     /** Serialises one collector's payments with their daily submission. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

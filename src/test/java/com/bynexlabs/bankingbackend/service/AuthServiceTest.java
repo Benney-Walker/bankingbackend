@@ -50,6 +50,9 @@ class AuthServiceTest {
     @Mock
     private CollectorSubmissionService collectorSubmissionService;
 
+    @Mock
+    private CollectorDeviceService collectorDeviceService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -57,7 +60,7 @@ class AuthServiceTest {
 
     @Test
     void staffRefreshReturnsANewAccessAndRefreshToken() {
-        when(sessionService.rotate(eq("refresh-token"), any()))
+        when(sessionService.rotate(eq("refresh-token"), any(), any()))
                 .thenReturn(new SessionService.Rotation("900105", List.of(Roles.AGENT), "next-refresh"));
         when(jwtUtility.generateAccessToken("900105", List.of("AGENT"))).thenReturn("new-access");
 
@@ -69,7 +72,7 @@ class AuthServiceTest {
 
     @Test
     void refreshFailuresFromTheSessionArePassedOn() {
-        when(sessionService.rotate(eq("refresh-token"), any()))
+        when(sessionService.rotate(eq("refresh-token"), any(), any()))
                 .thenThrow(new UnauthorizedException("Invalid or expired refresh token"));
 
         assertThatThrownBy(() -> authService.refreshStaffAccessToken(new RefreshRequest("refresh-token")))
@@ -81,21 +84,21 @@ class AuthServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void staffRefreshOnlyAllowsNonCollectorsAndCollectorRefreshOnlyCollectors() {
-        when(sessionService.rotate(eq("staff-token"), any()))
+        when(sessionService.rotate(eq("staff-token"), any(), any()))
                 .thenReturn(new SessionService.Rotation("900105", List.of(Roles.AGENT), "a"));
-        when(sessionService.rotate(eq("collector-token"), any()))
+        when(sessionService.rotate(eq("collector-token"), any(), any()))
                 .thenReturn(new SessionService.Rotation("900110", List.of(Roles.COLLECTOR), "b"));
 
         authService.refreshStaffAccessToken(new RefreshRequest("staff-token"));
         authService.refreshCollectorAccessToken(new RefreshRequest("collector-token"));
 
         ArgumentCaptor<Predicate<List<Roles>>> staffRule = ArgumentCaptor.forClass(Predicate.class);
-        verify(sessionService).rotate(eq("staff-token"), staffRule.capture());
+        verify(sessionService).rotate(eq("staff-token"), staffRule.capture(), any());
         assertThat(staffRule.getValue().test(List.of(Roles.AGENT))).isTrue();
         assertThat(staffRule.getValue().test(List.of(Roles.COLLECTOR))).isFalse();
 
         ArgumentCaptor<Predicate<List<Roles>>> collectorRule = ArgumentCaptor.forClass(Predicate.class);
-        verify(sessionService).rotate(eq("collector-token"), collectorRule.capture());
+        verify(sessionService).rotate(eq("collector-token"), collectorRule.capture(), any());
         assertThat(collectorRule.getValue().test(List.of(Roles.COLLECTOR))).isTrue();
         assertThat(collectorRule.getValue().test(List.of(Roles.ADMINISTRATOR))).isFalse();
     }
@@ -124,14 +127,14 @@ class AuthServiceTest {
     }
 
     private static LoginRequest login(String staffId) {
-        return LoginRequest.builder().staffId(staffId).password("long-enough-1").build();
+        return LoginRequest.builder().staffId(staffId).password("long-enough-1").deviceId("phone-1").build();
     }
 
     @Test
     void collectorLoginIssuesTokensForACollector() {
         when(staffService.getStaffDetails("900110")).thenReturn(staffWithRoles("900110", Roles.COLLECTOR));
         when(jwtUtility.generateAccessToken("900110", List.of("COLLECTOR"))).thenReturn("access");
-        when(sessionService.startSession(any(Staff.class))).thenReturn("refresh");
+        when(sessionService.startSession(any(Staff.class), eq("phone-1"))).thenReturn("refresh");
 
         LoginResponse response = authService.collectorAuthentication(login("900110"));
 
@@ -184,5 +187,51 @@ class AuthServiceTest {
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("Your collections for today have been approved. You can sign in again tomorrow");
         verifyNoInteractions(sessionService);
+    }
+
+    // --- one phone per collector (owner decisions 2026-11-23) --------------------------------
+
+    @Test
+    void collectorLoginChecksThePhoneAndBindsTheSessionToIt() {
+        Staff collector = staffWithRoles("900110", Roles.COLLECTOR);
+        when(staffService.getStaffDetails("900110")).thenReturn(collector);
+        when(sessionService.startSession(collector, "phone-1")).thenReturn("refresh");
+
+        authService.collectorAuthentication(login("900110"));
+
+        verify(collectorDeviceService).requireRegisteredDevice(collector, "phone-1");
+    }
+
+    @Test
+    void collectorOnAnotherPhoneGetsNoTokens() {
+        Staff collector = staffWithRoles("900110", Roles.COLLECTOR);
+        when(staffService.getStaffDetails("900110")).thenReturn(collector);
+        org.mockito.Mockito.doThrow(new ForbiddenException("This account is registered to another phone."))
+                .when(collectorDeviceService).requireRegisteredDevice(collector, "phone-1");
+
+        assertThatThrownBy(() -> authService.collectorAuthentication(login("900110")))
+                .isInstanceOf(ForbiddenException.class);
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    void collectorRefreshPassesThePhone() {
+        RefreshRequest request = new RefreshRequest("collector-token");
+        request.setDeviceId("phone-1");
+        when(sessionService.rotate(eq("collector-token"), any(), eq("phone-1")))
+                .thenReturn(new SessionService.Rotation("900110", List.of(Roles.COLLECTOR), "next"));
+
+        assertThat(authService.refreshCollectorAccessToken(request).refreshToken()).isEqualTo("next");
+    }
+
+    @Test
+    void staffLoginDoesntCheckAPhone() {
+        Staff agent = staffWithRoles("900105", Roles.AGENT);
+        when(staffService.getStaffDetails("900105")).thenReturn(agent);
+
+        authService.staffAuthentication(login("900105"));
+
+        verifyNoInteractions(collectorDeviceService);
+        verify(sessionService).startSession(agent, null);
     }
 }

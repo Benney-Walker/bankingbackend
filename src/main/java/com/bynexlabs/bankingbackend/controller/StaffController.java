@@ -1,5 +1,7 @@
 package com.bynexlabs.bankingbackend.controller;
 
+import com.bynexlabs.bankingbackend.enums.Roles;
+import com.bynexlabs.bankingbackend.service.CollectorDeviceService;
 import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffDetails;
 import com.bynexlabs.bankingbackend.DTO.staff.StaffResponse;
@@ -31,6 +33,8 @@ public class StaffController {
 
     private final AuthenticatedStaffProvider staffProvider;
 
+    private final CollectorDeviceService collectorDeviceService;
+
     @GetMapping("/v1/all-staff")
     public ResponseEntity<?> listStaff() {
         return ResponseEntity.ok(staffService.listStaff(staffProvider.getStaff()));
@@ -43,6 +47,17 @@ public class StaffController {
     @GetMapping("/v1/me")
     public StaffResponse getOwnProfile() {
         return staffService.getStaff(staffProvider.getStaffId());
+    }
+
+    /**
+     * Releases a collector's registered phone (lost, replaced or reinstalled) and signs them out
+     * everywhere; their next sign-in registers the new phone. Agents for their own branch's
+     * collectors, administrators for all (owner decision 2026-11-23).
+     */
+    @PostMapping("/v1/collectors/{staffId}/release-device")
+    public ResponseEntity<Void> releaseCollectorDevice(@PathVariable String staffId) {
+        collectorDeviceService.release(staffId, staffProvider.getStaff(), staffProvider.hasRole(Roles.ADMINISTRATOR));
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/v1/staff-details/{staffId}")

@@ -30,6 +30,8 @@ public class StaffResponse {
     private String residentialAddress;
     /** Added 2026-11-23 (owner) for the own-profile endpoint; also on every staff response. */
     private UUID branchId;
+    /** When the collector's current phone was registered; null when none is (V42). */
+    private LocalDateTime deviceRegisteredAt;
     private String branchName;
     private StaffStatus status;
     private List<Roles> roles;
@@ -49,6 +51,7 @@ public class StaffResponse {
                 .email(staff.getEmail())
                 .residentialAddress(staff.getResidentialAddress())
                 .branchId(staff.getBranch() == null ? null : staff.getBranch().getId())
+                .deviceRegisteredAt(staff.getDeviceRegisteredAt())
                 .branchName(staff.getBranch() == null ? null : staff.getBranch().getName())
                 .status(staff.getStaffStatus())
                 .roles(staff.getRoles() == null ? List.of() : staff.getRoles().stream().map(role -> role.getRole()).toList())

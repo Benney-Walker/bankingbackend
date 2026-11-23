@@ -41,6 +41,8 @@ public class AuthService {
 
     private final CollectorSubmissionService collectorSubmissionService;
 
+    private final CollectorDeviceService collectorDeviceService;
+
     public ResponseEntity<?> staffAuthentication(LoginRequest loginRequest) {
         Staff staff = authenticate(loginRequest);
         if (isCollector(staff)) {
@@ -57,7 +59,9 @@ public class AuthService {
         if (collectorSubmissionService.isClosedForToday(staff.getId())) {
             throw new ForbiddenException("Your collections for today have been approved. You can sign in again tomorrow");
         }
-        return issueTokens(staff);
+        // Owner decision 2026-11-23: one registered phone per collector.
+        collectorDeviceService.requireRegisteredDevice(staff, loginRequest.getDeviceId());
+        return issueTokens(staff, loginRequest.getDeviceId());
     }
 
     /** A collector's refresh token can't be swapped for a desktop session. */
@@ -87,19 +91,25 @@ public class AuthService {
     }
 
     private LoginResponse issueTokens(Staff staff) {
+        return issueTokens(staff, null);
+    }
+
+    // A collector's session is bound to their phone (deviceId); office staff pass null.
+    private LoginResponse issueTokens(Staff staff, String deviceId) {
         List<String> roles = roleNames(staff);
         return LoginResponse.builder()
                 .staffName(staff.getFirstName().toUpperCase() + " " + staff.getLastName().toUpperCase())
                 .roles(roles)
                 .authToken(jwtUtility.generateAccessToken(staff.getStaffId(), roles))
-                .refreshToken(sessionService.startSession(staff))
+                .refreshToken(sessionService.startSession(staff, deviceId))
                 .build();
     }
 
     // SessionService checks the token, that the staff member is still active, and that they may
     // refresh on this endpoint, then swaps the token.
     private TokenResponse refresh(RefreshRequest refreshRequest, Predicate<List<Roles>> allowed) {
-        SessionService.Rotation rotation = sessionService.rotate(refreshRequest.getRefreshToken(), allowed);
+        SessionService.Rotation rotation = sessionService.rotate(refreshRequest.getRefreshToken(), allowed,
+                refreshRequest.getDeviceId());
         List<String> roles = rotation.roles().stream().map(Enum::name).toList();
         return new TokenResponse(jwtUtility.generateAccessToken(rotation.staffId(), roles), rotation.refreshToken());
     }

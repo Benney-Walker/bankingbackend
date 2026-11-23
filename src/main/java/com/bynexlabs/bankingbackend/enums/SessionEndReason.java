@@ -12,5 +12,7 @@ public enum SessionEndReason {
     DAILY_APPROVAL,
     PASSWORD_RESET,
     DEACTIVATED,
-    ROLES_CHANGED
+    ROLES_CHANGED,
+    /** The collector's registered phone was released (V42). */
+    DEVICE_RELEASED
 }

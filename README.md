@@ -27,7 +27,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | Area | Variables |
 |---|---|
 | Database | `POSTGRES_URL`, `DB_USERNAME`, `POSTGRES_ROOT_PASSWORD` |
-| JWT | `JWT_SECRET`, `JWT_ACCESS_EXPIRATION`, `JWT_REFRESH_EXPIRATION` (milliseconds) |
+| JWT | `JWT_SECRET`, `JWT_ACCESS_EXPIRATION` (default 600000, 10 minutes), `JWT_REFRESH_EXPIRATION` (default 86400000, 24 hours), in milliseconds; the same for all staff (owner decision 2026-11-23) |
 | RabbitMQ | `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD` |
 | Cloudflare R2 | `CLOUD_FLARE_ID`, `CLOUD_FLARE_ACCESS_KEY`, `CLOUD_FLARE_SECRET_KEY` |
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
@@ -75,9 +75,9 @@ Access is set by URL in `SecurityConfig`:
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/auth/v1/staff-login` | Desktop login with `staffId` and `password`; returns `staffName`, `roles`, `authToken`, `refreshToken`. Collector accounts → 403 |
-| POST | `/api/auth/v1/collector-login` | Collector app login, same body and response. Only COLLECTOR accounts (others → 403). See "Collectors" |
+| POST | `/api/auth/v1/collector-login` | Collector app login, same response; body adds `deviceId` (the app's install ID, required). Only COLLECTOR accounts (others → 403). The first sign-in registers the phone; another phone → 403 until it's released. See "Collectors" |
 | POST | `/api/auth/v1/refresh-staff-token` | Body `{ "refreshToken" }`; returns `{ "authToken", "refreshToken" }`. The old refresh token stops working: store the new one. Collector, inactive or unknown accounts, or an ended session → 401. See "Sessions" |
-| POST | `/api/auth/v1/refresh-collector-token` | The same for collectors; non-collector, inactive or unknown accounts → 401 |
+| POST | `/api/auth/v1/refresh-collector-token` | The same for collectors, with `deviceId` in the body; a different or missing `deviceId`, or a non-collector, inactive or unknown account → 401 |
 | POST | `/api/auth/v1/logout` | Body `{ "refreshToken" }`. Signs out this device (both apps): the session's refresh tokens stop working and its access tokens are refused at once. Always 204 |
 | POST | `/api/auth/v1/password-reset/request-code` | Body `{ "staffId" }`. Texts a 6-digit code (Vynfy) to an ACTIVE staff member. Unknown or inactive staff ID → 400; again within a minute → 409; SMS failure → 500 |
 | POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
@@ -86,6 +86,7 @@ Access is set by URL in `SecurityConfig`:
 | GET | `/api/branch/v1/all` | ADMINISTRATOR and AGENT. Every branch as `[{ "id", "name" }]` (owner decision 2026-11-16), by name, for add-staff and member registration |
 | GET | `/api/staff/v1/all-staff` | Staff list: an agent sees their own branch's staff, an administrator everyone. Not paginated yet |
 | GET | `/api/staff/v1/me` | The signed-in staff member's own profile, same fields as staff details including `branchId` and `branchName`. ADMINISTRATOR and AGENT; collectors → 403 |
+| POST | `/api/staff/v1/collectors/{staffId}/release-device` | Releases a collector's registered phone and signs them out everywhere; their next sign-in registers the new phone. Agents: own branch's collectors (403 otherwise); administrators all. No phone registered → 409. Returns 204 |
 | GET | `/api/staff/v1/staff-details/{staffId}` | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress` |
 | PUT | `/api/staff/v1/update-roles/{staffId}` | Body `{ "roles": ["AGENT", …] }`, the complete new role set; takes effect on the staff member's next request |
@@ -126,7 +127,7 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/transaction/v1/collector-submissions/{submissionId}/approve` | Body `{ "countedAmount" }`, the cash counted (0 allowed). Moves it to Cash on Hand, records any shortage or surplus, signs the collector out until tomorrow |
 | GET | `/api/admin/ledger/v1/trial-balance` | Debit and credit totals and balance for every postable GL account; `balanced` should always be true |
 
-Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `branchId`, `branchName`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
+Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `branchId`, `branchName`, `deviceRegisteredAt` (collectors: when the current phone was registered, null if none), `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
 
 ### Error responses
 
@@ -219,6 +220,12 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 
 
 **Day summary:** `GET /api/collector/v1/payments?date=` lists the collector's payments for the day with the number of payments and savings, shares and overall totals (failed payments not counted).
+
+### One phone per collector (owner decisions 2026-11-23)
+
+- The app makes a random install ID once and sends it as `deviceId` at `collector-login` and `refresh-collector-token`. Reinstalling the app counts as a new phone.
+- The first sign-in registers the phone. Signing in on another phone → 403 until the branch's agent or an administrator releases it (`POST /api/staff/v1/collectors/{staffId}/release-device`), which also signs the collector out everywhere.
+- Each collector session is bound to its phone: its refresh token works only with the same `deviceId`.
 
 ### Location (owner decisions 2026-11-23)
 
@@ -348,6 +355,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V39 | Sessions: `refresh_token` (hashed, rotating) and `staffs.sessions_valid_after`. Collector daily submissions: `collector_submission` (one open per collector, final once approved), `transaction.collector_submission_id`, GL **2030 Cash Overages (Suspense)** and `COLLECTOR_HANDOVER` posting rules (amount parts `SETTLED`, `OVERAGE`) |
 | V40 | `member_update_request`: proposed member updates (one waiting per member, reason required to reject, final once reviewed) |
 | V41 | `collector_location`: location points (position, accuracy, battery, trigger, phone and server time), one row per collector, phone time and trigger |
+| V42 | One phone per collector: `staffs.registered_device_id` and `device_registered_at`, `refresh_token.device_id`, revoke reason `DEVICE_RELEASED` |
 
 ## Status
 

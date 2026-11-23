@@ -77,9 +77,18 @@ public class SessionService {
     /** Starts a session at login and returns its first refresh token. */
     @Transactional
     public String startSession(Staff staff) {
+        return startSession(staff, null);
+    }
+
+    /**
+     * Starts a session bound to a collector's phone (V42): its refresh tokens then work only when
+     * the same {@code deviceId} is sent. Null for office staff.
+     */
+    @Transactional
+    public String startSession(Staff staff, String deviceId) {
         Instant now = clock.instant();
         return issue(staffRepo.getReferenceById(staff.getId()), UUID.randomUUID(), null,
-                now.plusMillis(refreshExpirationInMs), now);
+                now.plusMillis(refreshExpirationInMs), now, deviceId == null ? null : deviceId.trim());
     }
 
     /**
@@ -89,6 +98,12 @@ public class SessionService {
      */
     @Transactional(noRollbackFor = UnauthorizedException.class)
     public Rotation rotate(String rawToken, Predicate<List<Roles>> allowed) {
+        return rotate(rawToken, allowed, null);
+    }
+
+    /** As above; a session bound to a phone refreshes only when that phone's {@code deviceId} is sent. */
+    @Transactional(noRollbackFor = UnauthorizedException.class)
+    public Rotation rotate(String rawToken, Predicate<List<Roles>> allowed, String deviceId) {
         RefreshToken token = refreshTokenRepo.lockByTokenHash(hash(rawToken))
                 .orElseThrow(() -> new UnauthorizedException(INVALID));
         Instant now = clock.instant();
@@ -116,6 +131,11 @@ public class SessionService {
             newer.setRevokeReason(SessionEndReason.SUPERSEDED);
         }
 
+        // Another phone holding a copy of the token can't use it (and the copy reveals nothing).
+        if (token.getDeviceId() != null && (deviceId == null || !token.getDeviceId().equals(deviceId.trim()))) {
+            throw new UnauthorizedException(INVALID);
+        }
+
         Staff staff = token.getStaff();
         List<Roles> roles = staff.getRoles() == null ? List.of()
                 : staff.getRoles().stream().map(role -> role.getRole()).toList();
@@ -124,7 +144,7 @@ public class SessionService {
         }
 
         token.setReplacedAt(now);
-        String next = issue(staff, token.getFamilyId(), token.getId(), token.getExpiresAt(), now);
+        String next = issue(staff, token.getFamilyId(), token.getId(), token.getExpiresAt(), now, token.getDeviceId());
         return new Rotation(staff.getStaffId(), roles, next);
     }
 
@@ -166,7 +186,7 @@ public class SessionService {
         }
     }
 
-    private String issue(Staff staff, UUID familyId, UUID parentId, Instant expiresAt, Instant now) {
+    private String issue(Staff staff, UUID familyId, UUID parentId, Instant expiresAt, Instant now, String deviceId) {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -178,6 +198,7 @@ public class SessionService {
                 .tokenHash(hash(raw))
                 .issuedAt(now)
                 .expiresAt(expiresAt)
+                .deviceId(deviceId)
                 .build());
         return raw;
     }

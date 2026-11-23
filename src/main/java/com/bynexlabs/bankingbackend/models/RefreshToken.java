@@ -57,6 +57,10 @@ public class RefreshToken {
     @Column(name = "expires_at", nullable = false, updatable = false)
     private Instant expiresAt;
 
+    /** The collector's phone this session was started on (V42); null for office staff. */
+    @Column(name = "device_id", updatable = false, length = 100)
+    private String deviceId;
+
     @Setter
     @Column(name = "replaced_at")
     private Instant replacedAt;

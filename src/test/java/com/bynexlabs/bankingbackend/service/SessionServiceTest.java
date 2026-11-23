@@ -237,4 +237,42 @@ class SessionServiceTest {
         verify(refreshTokenRepo).revokeAllForStaff(collector.getId(), SessionEndReason.DAILY_APPROVAL, NOW);
         verify(staffRepo).cutSessions(collector.getId(), CUTOFF);
     }
+
+    // --- sessions bound to a collector's phone (V42) -------------------------------------------
+
+    private RefreshToken phoneToken(String raw, String deviceId) {
+        RefreshToken token = RefreshToken.builder().id(UUID.randomUUID()).staff(collector).familyId(UUID.randomUUID())
+                .tokenHash(SessionService.hash(raw)).issuedAt(NOW.minusSeconds(3600))
+                .expiresAt(NOW.plusSeconds(3600)).deviceId(deviceId).build();
+        when(refreshTokenRepo.lockByTokenHash(SessionService.hash(raw))).thenReturn(Optional.of(token));
+        return token;
+    }
+
+    @Test
+    void collectorSessionRemembersThePhone() {
+        when(staffRepo.getReferenceById(collector.getId())).thenReturn(collector);
+
+        service.startSession(collector, " phone-1 ");
+
+        assertThat(savedToken().getDeviceId()).isEqualTo("phone-1");
+    }
+
+    @Test
+    void refreshFromThePhoneKeepsTheBinding() {
+        phoneToken("old", "phone-1");
+
+        service.rotate("old", roles -> true, "phone-1");
+
+        assertThat(savedToken().getDeviceId()).isEqualTo("phone-1");
+    }
+
+    @Test
+    void refreshFromAnotherPhoneOrWithoutOneIsRefusedWithoutSwapping() {
+        RefreshToken token = phoneToken("old", "phone-1");
+
+        assertThatThrownBy(() -> service.rotate("old", roles -> true, "phone-2")).isInstanceOf(UnauthorizedException.class);
+        assertThatThrownBy(() -> service.rotate("old", roles -> true, null)).isInstanceOf(UnauthorizedException.class);
+        assertThat(token.getReplacedAt()).isNull();
+        verify(refreshTokenRepo, never()).save(any());
+    }
 }

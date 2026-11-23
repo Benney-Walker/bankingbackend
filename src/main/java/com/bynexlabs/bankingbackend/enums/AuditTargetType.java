@@ -7,5 +7,7 @@ public enum AuditTargetType {
     /** target_id is the member's UUID. KYC actions use the member, since there's one KYC record per member. */
     MEMBER,
     /** target_id names the settings group, e.g. "financial". */
-    SETTINGS
+    SETTINGS,
+    /** target_id is the member account number. */
+    ACCOUNT
 }

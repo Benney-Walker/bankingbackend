@@ -5,10 +5,17 @@ import com.bynexlabs.bankingbackend.DTO.transaction.TransactionRequest;
 import com.bynexlabs.bankingbackend.DTO.transaction.TransactionResponse;
 import com.bynexlabs.bankingbackend.DTO.transaction.TransferRequest;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
+import com.bynexlabs.bankingbackend.enums.Roles;
+import com.bynexlabs.bankingbackend.service.AccountStatementService;
 import com.bynexlabs.bankingbackend.service.MoneyMovementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.web.PagedModel;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
 
 /**
  * Money movements at the office. Access (ADMINISTRATOR and AGENT) is set for /api/transaction/**
@@ -28,6 +37,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class TransactionController {
 
     private final MoneyMovementService moneyMovementService;
+
+    private final AccountStatementService statementService;
 
     private final AuthenticatedStaffProvider staffProvider;
 
@@ -61,5 +72,22 @@ public class TransactionController {
                                                    @RequestParam(defaultValue = "0") int page,
                                                    @RequestParam(defaultValue = "20") int size) {
         return moneyMovementService.history(accountNumber, page, size);
+    }
+
+    /**
+     * Account statement as a PDF for the dates from..to (inclusive, any range). Administrators
+     * for any member, agents for their own branch's members (403 otherwise). Recorded in the audit log.
+     */
+    @GetMapping("/v1/statement/{accountNumber}")
+    public ResponseEntity<byte[]> statement(@PathVariable String accountNumber,
+                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        byte[] pdf = statementService.statementPdf(accountNumber, from, to, staffProvider.getStaff(),
+                staffProvider.hasRole(Roles.ADMINISTRATOR));
+        String fileName = "statement-" + accountNumber.trim().replaceAll("[^0-9A-Za-z-]", "") + "-" + from + "-" + to + ".pdf";
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(fileName).build().toString())
+                .body(pdf);
     }
 }

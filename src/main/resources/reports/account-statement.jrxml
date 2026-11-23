@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Account statement (owner decisions 2026-11-23). JasperReports 7 format. Rows come from
+     StatementLine beans through JRBeanCollectionDataSource; header and totals are parameters.
+     No SQL. Rendered by AccountStatementPdf. -->
+<jasperReport name="AccountStatement" language="java" columnCount="1" pageWidth="595" pageHeight="842" whenNoDataType="AllSectionsNoDetail" columnWidth="535" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" uuid="444dd8d9-64c8-497b-b296-46f44c960d89">
+	<style name="Base" default="true" fontName="DejaVu Sans" fontSize="9.0"/>
+	<parameter name="creditUnionName" class="java.lang.String"/>
+	<parameter name="branchName" class="java.lang.String"/>
+	<parameter name="memberName" class="java.lang.String"/>
+	<parameter name="accountNumber" class="java.lang.String"/>
+	<parameter name="accountType" class="java.lang.String"/>
+	<parameter name="periodFrom" class="java.lang.String"/>
+	<parameter name="periodTo" class="java.lang.String"/>
+	<parameter name="generatedAt" class="java.lang.String"/>
+	<parameter name="openingBalance" class="java.math.BigDecimal"/>
+	<parameter name="totalIn" class="java.math.BigDecimal"/>
+	<parameter name="totalOut" class="java.math.BigDecimal"/>
+	<parameter name="closingBalance" class="java.math.BigDecimal"/>
+	<field name="date" class="java.lang.String"/>
+	<field name="details" class="java.lang.String"/>
+	<field name="moneyOut" class="java.math.BigDecimal"/>
+	<field name="moneyIn" class="java.math.BigDecimal"/>
+	<field name="balance" class="java.math.BigDecimal"/>
+	<title height="172">
+		<element kind="textField" uuid="4f21ea18-384e-474f-9229-4247cbff8514" x="0" y="0" width="535" height="24" fontSize="16.0" bold="true" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA[$P{creditUnionName}]]></expression>
+		</element>
+		<element kind="staticText" uuid="4bec6890-842b-4ec6-9089-9f87af765061" x="0" y="24" width="535" height="18" fontSize="12.0" hTextAlign="Center" vTextAlign="Middle">
+			<text><![CDATA[Account Statement]]></text>
+		</element>
+		<element kind="line" uuid="c834ea09-ba3d-47fb-a5b4-9630716aff4a" x="0" y="48" width="535" height="1"/>
+		<element kind="staticText" uuid="5dd5e5de-6512-4424-8632-46138e5e0db4" x="0" y="56" width="85" height="16" bold="true" vTextAlign="Middle">
+			<text><![CDATA[Member]]></text>
+		</element>
+		<element kind="textField" uuid="c3dc4ac6-d239-4a89-be05-95d93d3cb34d" x="85" y="56" width="195" height="16" blankWhenNull="true" vTextAlign="Middle">
+			<expression><![CDATA[$P{memberName}]]></expression>
+		</element>
+		<element kind="staticText" uuid="f042e7e2-7331-48b6-8ae8-a4d3a1a6dae1" x="0" y="72" width="85" height="16" bold="true" vTextAlign="Middle">
+			<text><![CDATA[Account number]]></text>
+		</element>
+		<element kind="textField" uuid="2d2133bb-9429-418d-8722-752431789aa4" x="85" y="72" width="195" height="16" blankWhenNull="true" vTextAlign="Middle">
+			<expression><![CDATA[$P{accountNumber}]]></expression>
+		</element>
+		<element kind="staticText" uuid="6cc98b30-b546-4d87-8d78-cd6d5b62b311" x="0" y="88" width="85" height="16" bold="true" vTextAlign="Middle">
+			<text><![CDATA[Account type]]></text>
+		</element>
+		<element kind="textField" uuid="e7b2b9a2-4179-49c4-b05c-c2c782617fc3" x="85" y="88" width="195" height="16" blankWhenNull="true" vTextAlign="Middle">
+			<expression><![CDATA[$P{accountType}]]></expression>
+		</element>
+		<element kind="staticText" uuid="33e616c3-1d11-4c9b-96bc-0c85d33cfdf9" x="0" y="104" width="85" height="16" bold="true" vTextAlign="Middle">
+			<text><![CDATA[Branch]]></text>
+		</element>
+		<element kind="textField" uuid="ab854ec0-52ee-4ef1-81a1-9f231ad5d854" x="85" y="104" width="195" height="16" blankWhenNull="true" vTextAlign="Middle">
+			<expression><![CDATA[$P{branchName}]]></expression>
+		</element>
+		<element kind="staticText" uuid="a8a01150-74b5-4bcc-8b8b-e1bd68f10e7d" x="290" y="56" width="70" height="16" bold="true" vTextAlign="Middle">
+			<text><![CDATA[Period]]></text>
+		</element>
+		<element kind="textField" uuid="7697819c-d3b7-475c-b204-129b940a75f9" x="360" y="56" width="175" height="16" vTextAlign="Middle">
+			<expression><![CDATA[$P{periodFrom} + " to " + $P{periodTo}]]></expression>
+		</element>
+		<element kind="staticText" uuid="0d6d78fb-6af7-4ecf-8e82-ddfd4e48dcff" x="290" y="72" width="70" height="16" bold="true" vTextAlign="Middle">
+			<text><![CDATA[Generated]]></text>
+		</element>
+		<element kind="textField" uuid="7720c750-2314-46e1-ab43-c762dbbb871b" x="360" y="72" width="175" height="16" vTextAlign="Middle">
+			<expression><![CDATA[$P{generatedAt}]]></expression>
+		</element>
+		<element kind="staticText" uuid="3a49fcfe-1de5-4542-a7e6-f1e021057a7f" x="0" y="128" width="134" height="16" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0" hTextAlign="Center">
+			<text><![CDATA[Opening balance (GHS)]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="textField" uuid="dfc0d476-cb56-4c06-bfe0-dac9969ad1f5" x="0" y="144" width="134" height="20" pattern="#,##0.00" fontSize="10.0" bold="true" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA[$P{openingBalance}]]></expression>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="staticText" uuid="3572eeea-06fa-4eb1-9611-dd04523ff622" x="134" y="128" width="134" height="16" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0" hTextAlign="Center">
+			<text><![CDATA[Money in (GHS)]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="textField" uuid="44c7b4ce-5551-472a-80cf-f937c384c243" x="134" y="144" width="134" height="20" pattern="#,##0.00" fontSize="10.0" bold="true" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA[$P{totalIn}]]></expression>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="staticText" uuid="555c6dcf-d926-4d88-b16c-25ea622b9938" x="268" y="128" width="134" height="16" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0" hTextAlign="Center">
+			<text><![CDATA[Money out (GHS)]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="textField" uuid="a2edba76-cac8-479c-9cc5-2107303e06f0" x="268" y="144" width="134" height="20" pattern="#,##0.00" fontSize="10.0" bold="true" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA[$P{totalOut}]]></expression>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="staticText" uuid="5e103040-cfaa-4a5f-b3dc-b3c59f85d066" x="402" y="128" width="133" height="16" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0" hTextAlign="Center">
+			<text><![CDATA[Closing balance (GHS)]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="textField" uuid="cba0bff7-5eb3-44b6-a5b1-fad4d2dd96aa" x="402" y="144" width="133" height="20" pattern="#,##0.00" fontSize="10.0" bold="true" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA[$P{closingBalance}]]></expression>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+	</title>
+	<columnHeader height="20">
+		<element kind="staticText" uuid="9f7434f1-75a0-4475-b861-de97a247f82d" x="0" y="0" width="85" height="20" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0">
+			<text><![CDATA[Date]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="staticText" uuid="36d10e0b-e442-4603-82a9-db88c85762b9" x="85" y="0" width="210" height="20" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0">
+			<text><![CDATA[Details]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="staticText" uuid="b86349b5-58aa-4212-bd52-178ab463666c" x="295" y="0" width="80" height="20" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0" hTextAlign="Right">
+			<text><![CDATA[Money out (GHS)]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="staticText" uuid="ae1f59d4-bc78-4483-ac4c-2ab522df572b" x="375" y="0" width="80" height="20" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0" hTextAlign="Right">
+			<text><![CDATA[Money in (GHS)]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+		<element kind="staticText" uuid="191486f5-835b-43ae-84ff-40659625fbe7" x="455" y="0" width="80" height="20" mode="Opaque" backcolor="#EEEEEE" bold="true" vTextAlign="Middle" fontSize="8.0" hTextAlign="Right">
+			<text><![CDATA[Balance (GHS)]]></text>
+			<box leftPadding="4" rightPadding="4"><pen lineWidth="0.5" lineColor="#999999"/></box>
+		</element>
+	</columnHeader>
+	<detail>
+		<band height="16">
+			<element kind="textField" uuid="20b94899-259f-41b9-ac9d-2da300fe7495" x="0" y="0" width="85" height="16" fontSize="8.0" stretchType="ContainerHeight" vTextAlign="Middle">
+				<expression><![CDATA[$F{date}]]></expression>
+				<box leftPadding="4" rightPadding="4"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="458c839a-095b-43a5-8d55-592dd0d4ec13" x="85" y="0" width="210" height="16" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle">
+				<expression><![CDATA[$F{details}]]></expression>
+				<box leftPadding="4" rightPadding="4"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="79910eee-b559-4429-9906-e4285d63937f" x="295" y="0" width="80" height="16" fontSize="8.0" stretchType="ContainerHeight" pattern="#,##0.00" blankWhenNull="true" hTextAlign="Right" vTextAlign="Middle">
+				<expression><![CDATA[$F{moneyOut}]]></expression>
+				<box leftPadding="4" rightPadding="4"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="cef469db-d0ee-40db-804e-08a254d9a74e" x="375" y="0" width="80" height="16" fontSize="8.0" stretchType="ContainerHeight" pattern="#,##0.00" blankWhenNull="true" hTextAlign="Right" vTextAlign="Middle">
+				<expression><![CDATA[$F{moneyIn}]]></expression>
+				<box leftPadding="4" rightPadding="4"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="3a8abf72-4e94-465a-8362-a35dd1d0b3a9" x="455" y="0" width="80" height="16" fontSize="8.0" stretchType="ContainerHeight" pattern="#,##0.00" blankWhenNull="true" hTextAlign="Right" vTextAlign="Middle">
+				<expression><![CDATA[$F{balance}]]></expression>
+				<box leftPadding="4" rightPadding="4"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+		</band>
+	</detail>
+	<pageFooter height="18">
+		<element kind="textField" uuid="e3c8ecc7-db25-4215-9773-f373a0e4f3e5" x="0" y="2" width="400" height="14" fontSize="7.0" vTextAlign="Middle">
+			<expression><![CDATA[$P{creditUnionName} + " - statement for account " + $P{accountNumber}]]></expression>
+		</element>
+		<element kind="textField" uuid="18316c8a-bdbb-4422-ab64-0deef653a084" x="400" y="2" width="105" height="14" fontSize="7.0" hTextAlign="Right" vTextAlign="Middle">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" uuid="9b460917-56d4-4dd5-a157-ee5fcfa67878" x="505" y="2" width="30" height="14" fontSize="7.0" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+	<summary height="50">
+		<element kind="staticText" uuid="d3a26af7-293e-453d-b1fb-655d4fc6afaf" x="0" y="4" width="295" height="18" bold="true" hTextAlign="Right" vTextAlign="Middle">
+			<text><![CDATA[Total for the period]]></text>
+			<box rightPadding="4"/>
+		</element>
+		<element kind="textField" uuid="5121c4f3-b45f-451a-a1e7-db53794c5f57" x="295" y="4" width="80" height="18" bold="true" pattern="#,##0.00" blankWhenNull="true" hTextAlign="Right" vTextAlign="Middle">
+			<expression><![CDATA[$P{totalOut}]]></expression>
+			<box rightPadding="4"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+		</element>
+		<element kind="textField" uuid="ddd43fde-e999-49a3-a13c-672d85bafc10" x="375" y="4" width="80" height="18" bold="true" pattern="#,##0.00" blankWhenNull="true" hTextAlign="Right" vTextAlign="Middle">
+			<expression><![CDATA[$P{totalIn}]]></expression>
+			<box rightPadding="4"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+		</element>
+		<element kind="textField" uuid="8393d2f7-8785-4e8c-b0cb-2131a429841b" x="455" y="4" width="80" height="18" bold="true" pattern="#,##0.00" blankWhenNull="true" hTextAlign="Right" vTextAlign="Middle">
+			<expression><![CDATA[$P{closingBalance}]]></expression>
+			<box rightPadding="4"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+		</element>
+		<element kind="staticText" uuid="fbca7dab-8049-4eb6-8e86-1c657e3f715e" x="0" y="28" width="535" height="18" italic="true" hTextAlign="Center" vTextAlign="Middle">
+			<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() == 0]]></printWhenExpression>
+			<text><![CDATA[No transactions in this period]]></text>
+		</element>
+	</summary>
+</jasperReport>

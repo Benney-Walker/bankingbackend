@@ -11,6 +11,7 @@ Spring Boot API for a single credit union. It serves the staff desktop applicati
 - AWS Textract for KYC OCR (provider not final). The KYC flow only talks to `OcrInterface` (`interfaces` package); `TextractOcrService` is the current implementation, so switching providers means adding one class
 - Vynfy for SMS (staff password-reset codes, new-staff welcome SMS, member transaction SMS). Vynfy only accepts international numbers, so stored local numbers (`0241234567`) are sent as `+233241234567`
 - JWT (JJWT) for staff authentication
+- JasperReports 7 for account statement PDFs (template `src/main/resources/reports/account-statement.jrxml`, DejaVu fonts embedded)
 
 ## Prerequisites
 
@@ -33,6 +34,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
 | Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
+| Statements | `CREDIT_UNION_NAME` (default `Credit Union`, a placeholder): the name printed at the top of account statements |
 | Collector payments | `COLLECTOR_FINALIZE_INTERVAL_MS` (optional, default `60000`): how often any payment still `PENDING` from the old 10-minute window is applied (payments are now applied on arrival) |
 | CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
 | API docs | `API_DOCS_ENABLED` (optional, default `false`): serve `/v3/api-docs` and Swagger UI. Leave off in production |
@@ -114,6 +116,7 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/transaction/v1/transfer` | Transfer between two savings or current accounts, same member or two members |
 | GET | `/api/transaction/v1/account/{accountNumber}` | Account balances, type, status and owner |
 | GET | `/api/transaction/v1/history/{accountNumber}?page=0&size=20` | The account's transactions, newest first, `size` 1–100. Includes transfers into it and first deposits that bought its shares |
+| GET | `/api/transaction/v1/statement/{accountNumber}?from=2026-11-01&to=2026-11-30` | Account statement as a PDF download (see "Account statements"). Administrators any member, agents their own branch (403 otherwise). `from` and `to` required, any range |
 | GET | `/api/collector/v1/members` | Collector: members in their branch with their savings and shares accounts (`memberName`, `accounts[]` of `accountNumber` and `accountType`); no other details, no balances |
 | POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "createdAt", "updatedAt" }` (phone times, both required). Applied on arrival. See "Collector recording" |
 | GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
@@ -267,7 +270,7 @@ The mock values are placeholders until the credit union gives its real ones.
 
 ## Transactions and ledger
 
-Administrators and agents record money movements at the office through `/api/transaction`. Collector recording comes later with the collector flow (10-minute correction window, member SMS).
+Administrators and agents record money movements at the office through `/api/transaction`. Collector payments are covered under "Collector recording".
 
 **Request body** for deposit, share purchase and withdrawal: `{ "idempotencyKey", "accountNumber", "amount", "description" }`. Transfer: `{ "idempotencyKey", "fromAccountNumber", "toAccountNumber", "amount", "description" }`. The app generates `idempotencyKey` (e.g. a UUID) once per user action and re-sends it unchanged on retries: the same key with the same request returns the recorded transaction without moving money again; the same key with a different request → 409. A recorded request is answered before the accounts are locked or checked, so a retry still gets its original result even if the account was frozen or its balance changed in between; a simultaneous retry waits on the account lock and then gets the first attempt's result. The member is texted only once, when the transaction is first recorded. Amounts must be positive with at most 4 decimal places.
 
@@ -305,6 +308,19 @@ Administrators and agents record money movements at the office through `/api/tra
 
 The chart (V33) and rules are a working version until the credit union's accountant reviews them.
 
+## Account statements
+
+Owner decisions 2026-11-23. `GET /api/transaction/v1/statement/{accountNumber}?from=&to=` returns a PDF (`statement-<account>-<from>-<to>.pdf`) built by the backend with JasperReports.
+
+- **Who:** administrators for any member; agents for members of their own branch only (403).
+- **Accounts:** every type (savings, current, shares). **Dates:** `from` and `to` (inclusive) are required; no limit on the range; `from` after `to` → 400.
+- **Header:** the credit union's name (`CREDIT_UNION_NAME`), "Account Statement", member name, account number and type, branch, period, and when it was generated. Who generated it is not printed; it's in the audit log.
+- **Balances:** opening balance, money in, money out and closing balance for the period, then one row per movement (date, details, money out, money in, balance after it) and the period totals.
+- **What counts:** only `COMPLETED` transactions. A collector payment is dated by the phone's `createdAt`. A withdrawal fee is its own row. A first deposit shows the remainder on the savings/current account and the share part on the shares account; a transfer shows on both accounts.
+- **How the balance is worked out:** the account's current balance minus every completed movement made on or after `from` gives the opening balance, so the statement always agrees with the account.
+- **Audit:** every statement generated is logged (`ACCOUNT_STATEMENT_GENERATED`, target `ACCOUNT` with the account number, and the dates).
+- **Template:** `reports/account-statement.jrxml` (JasperReports 7 format), compiled once on first use. Rows come from `StatementLine` beans through `JRBeanCollectionDataSource`; header and totals are parameters; the template runs no SQL.
+
 ## Audit log
 
 Business actions are recorded in the `audit_log` table (V22), in the same database transaction as the action, so an action and its entry are saved together or not at all. Each entry has the time, the acting staff code (empty for automated actions), the action, the target (`STAFF` with a staff code, or `MEMBER` with a member ID) and a short description. The table is append-only.
@@ -319,6 +335,7 @@ Business actions are recorded in the `audit_log` table (V22), in the same databa
 | `KYC_APPROVED`, `KYC_REJECTED` | Manual review by an administrator; rejections include the reason |
 | `KYC_DOCUMENT_VIEWED` | A staff member opened a member's ID document |
 | `FINANCIAL_SETTINGS_UPDATED` | An administrator changed the financial settings (target `SETTINGS`, old and new values) |
+| `ACCOUNT_STATEMENT_GENERATED` | A staff member generated an account statement (target `ACCOUNT` with the account number, and the dates) |
 
 Passwords, reset codes and document contents are never written to the log. There's no endpoint for reading the log yet.
 
@@ -378,7 +395,8 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Endpoint role permissions | URL rules in `SecurityConfig` (see API) |
 | Transaction SMS | Every office transaction texts the member (outbox + `transaction_sms_queue`, retries, dead-letter queue) |
 | Collector accounts | Staff with only the COLLECTOR role; own login and refresh endpoints; one active agent per branch (see "Collectors") |
-| Collector recording | Savings deposits and share purchases with the 10-minute correction window, offline records, day summary, daily submission and approval with cash counted. No withdrawal requests: members withdraw at any branch's office |
+| Collector recording | Savings deposits and share purchases, final on arrival (the app's 5-minute correction window), day summary, daily submission and approval with cash counted. No withdrawal requests: members withdraw at any branch's office |
+| Account statements | PDF for any date range (JasperReports), opening/closing balance, running balance, totals; audited |
 | Loans | Not implemented |
 | Loans | Entities only; lending rules not approved (Phase 7) |
 
@@ -413,3 +431,5 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Collector auth (owner, master `5837a4f`; fixed on master `806660c`, 2026-11-14):** collectors are staff accounts with only the COLLECTOR role; `collector-login` / `refresh-collector-token` accept only collectors and the staff endpoints refuse them; one active agent per branch; add-staff is ADMINISTRATOR only. The empty `collector` table is dropped by V36.
 - **Collector recording (PR #14):** `/api/collector` for collectors: branch member list, SAVINGS/SHARES payments that stay PENDING for 10 minutes with corrections (`collector_correction`), applied by `CollectorPaymentFinalizer` against 1015 Cash with Collectors with the member SMS; offline records applied on arrival; day summary. V37. Withdrawal requests were built and then removed at the owner's request (2026-11-15, V38): members withdraw at the nearest branch.
 - **Sessions and daily submission (PR #14, V39):** stored, rotating refresh tokens with stolen-token detection; `logout`; sessions ended at once on logout, daily approval, password reset, deactivation and role change. Collectors close the day with a submission of all unsubmitted payments; the branch's agent or an administrator approves with the cash counted (1015 → 1010, surplus to 2030; no shortages since 2026-11-23); approval signs the collector out until tomorrow.
+- **Collector records final on arrival (PR #14, V45, 2026-11-23):** the app keeps a payment for 5 minutes and corrects it there; the backend applies it on arrival with the phone's `createdAt`/`updatedAt` and its own `receivedAt`; correction endpoint removed; a payment from a day already submitted → 409.
+- **Account statements (PR #14, 2026-11-23):** PDF statements with JasperReports for any date range: opening and closing balance, running balance, money in and out; administrators any member, agents own branch; audited.

@@ -22,5 +22,7 @@ public enum AuditAction {
     MEMBER_UPDATE_APPROVED,
     MEMBER_UPDATE_REJECTED,
     COLLECTOR_DEVICE_REGISTERED,
-    COLLECTOR_DEVICE_RELEASED
+    COLLECTOR_DEVICE_RELEASED,
+    /** A staff member generated an account statement (owner decision 2026-11-23). */
+    ACCOUNT_STATEMENT_GENERATED
 }

@@ -108,4 +108,19 @@ public interface TransactionRepo extends JpaRepository<Transaction, UUID> {
             where t.memberAccount.id = :accountId or c.id = :accountId
             """)
     Page<Transaction> findForAccount(@Param("accountId") UUID accountId, Pageable pageable);
+
+    /**
+     * COMPLETED transactions where the account is either side, made on or after the given time,
+     * oldest first. For a collector payment created_at is the phone's time (V45). Used for
+     * statements: the balance before the period is the current balance minus all of these.
+     */
+    @Query("""
+            select t from Transaction t join fetch t.memberAccount m left join fetch t.counterpartyAccount c
+            where (m.id = :accountId or c.id = :accountId)
+              and t.status = com.bynexlabs.bankingbackend.enums.TransactionStatus.COMPLETED
+              and t.createdAt >= :from
+            order by t.createdAt, t.receivedAt, t.id
+            """)
+    List<Transaction> findCompletedForAccountSince(@Param("accountId") UUID accountId,
+                                                   @Param("from") LocalDateTime from);
 }

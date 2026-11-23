@@ -30,6 +30,8 @@
         <java.version>17</java.version>
         <!-- springdoc 3.2.x is the line for Spring Boot 4.1.x (start.spring.io mapping). -->
         <springdoc.version>3.2.0</springdoc.version>
+        <!-- Account statement PDFs (owner decision 2026-11-23: JasperReports, as in EazyManage). -->
+        <jasperreports.version>7.0.3</jasperreports.version>
     </properties>
     <dependencies>
         <dependency>
@@ -146,6 +148,28 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>textract</artifactId>
             <version>2.25.11</version>
+        </dependency>
+        <!-- JasperReports 7: core, PDF export, DejaVu fonts (embedded in the PDF, so the server
+             needs no system fonts) and the JDT compiler (compiles the JRXML on a plain JRE). -->
+        <dependency>
+            <groupId>net.sf.jasperreports</groupId>
+            <artifactId>jasperreports</artifactId>
+            <version>${jasperreports.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.sf.jasperreports</groupId>
+            <artifactId>jasperreports-pdf</artifactId>
+            <version>${jasperreports.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.sf.jasperreports</groupId>
+            <artifactId>jasperreports-fonts</artifactId>
+            <version>${jasperreports.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.sf.jasperreports</groupId>
+            <artifactId>jasperreports-jdt</artifactId>
+            <version>${jasperreports.version}</version>
         </dependency>
     </dependencies>
 

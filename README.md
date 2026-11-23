@@ -85,6 +85,7 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/staff/v1/add-staff` | ADMINISTRATOR only. Create a staff member or collector in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`. `COLLECTOR` can't be combined with another role (400); a branch can have only one active agent (409). **No password** (owner decision 2026-11-15): the backend sets a random one nobody sees, and the new staff member is texted their staff ID; they set their own password through password reset before signing in. See "Adding staff" |
 | GET | `/api/branch/v1/all` | ADMINISTRATOR and AGENT. Every branch as `[{ "id", "name" }]` (owner decision 2026-11-16), by name, for add-staff and member registration |
 | GET | `/api/staff/v1/all-staff` | Staff list: an agent sees their own branch's staff, an administrator everyone. Not paginated yet |
+| GET | `/api/staff/v1/me` | The signed-in staff member's own profile, same fields as staff details including `branchId` and `branchName`. ADMINISTRATOR and AGENT; collectors → 403 |
 | GET | `/api/staff/v1/staff-details/{staffId}` | One staff member (404 if unknown) |
 | PUT | `/api/staff/v1/update-staff/{staffId}` | Replace profile fields: `firstName`, `middleName` (optional), `lastName`, `dateOfBirth` (yyyy-MM-dd), `phoneNumber`, `email`, `residentialAddress` |
 | PUT | `/api/staff/v1/update-roles/{staffId}` | Body `{ "roles": ["AGENT", …] }`, the complete new role set; takes effect on the staff member's next request |
@@ -116,7 +117,7 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/transaction/v1/collector-submissions/{submissionId}/approve` | Body `{ "countedAmount" }`, the cash counted (0 allowed). Moves it to Cash on Hand, records any shortage or surplus, signs the collector out until tomorrow |
 | GET | `/api/admin/ledger/v1/trial-balance` | Debit and credit totals and balance for every postable GL account; `balanced` should always be true |
 
-Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
+Staff responses contain `staffId`, `firstName`, `middleName`, `lastName`, `dateOfBirth`, `phoneNumber`, `email`, `residentialAddress`, `branchId`, `branchName`, `status`, `roles`, `createdAt` and `updatedAt`. They never include the password.
 
 ### Error responses
 

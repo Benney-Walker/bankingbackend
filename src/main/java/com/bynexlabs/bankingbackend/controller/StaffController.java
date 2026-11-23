@@ -36,6 +36,15 @@ public class StaffController {
         return ResponseEntity.ok(staffService.listStaff(staffProvider.getStaff()));
     }
 
+    /**
+     * The signed-in staff member's own profile, with their branch ID and name (owner decision
+     * 2026-11-23). Administrators and agents only, like the rest of /api/staff; collectors get 403.
+     */
+    @GetMapping("/v1/me")
+    public StaffResponse getOwnProfile() {
+        return staffService.getStaff(staffProvider.getStaffId());
+    }
+
     @GetMapping("/v1/staff-details/{staffId}")
     public StaffResponse getStaff(@PathVariable String staffId) {
         return staffService.getStaff(staffId);

@@ -132,6 +132,19 @@ class StaffManagementServiceTest {
         verify(staffRepo, never()).findByBranch_Id(any());
     }
 
+    // Owner decision 2026-11-23: staff responses carry the branch ID beside its name (own profile).
+    @Test
+    void staffResponseCarriesBranchIdAndName() {
+        Staff staff = existingStaff();
+        when(staffRepo.findByStaffId(STAFF_ID)).thenReturn(Optional.of(staff));
+
+        StaffResponse response = staffService.getStaff(STAFF_ID);
+
+        assertThat(response.getBranchId()).isEqualTo(staff.getBranch().getId());
+        assertThat(response.getBranchName()).isEqualTo("Tarkwa");
+        assertThat(response.getRoles()).containsExactly(Roles.AGENT);
+    }
+
     @Test
     void getUnknownStaffIsNotFound() {
         when(staffRepo.findByStaffId("900999")).thenReturn(Optional.empty());

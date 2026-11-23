@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /** Staff record as returned to administrators. Deliberately has no password field. */
 @Data
@@ -27,6 +28,8 @@ public class StaffResponse {
     private String phoneNumber;
     private String email;
     private String residentialAddress;
+    /** Added 2026-11-23 (owner) for the own-profile endpoint; also on every staff response. */
+    private UUID branchId;
     private String branchName;
     private StaffStatus status;
     private List<Roles> roles;
@@ -45,7 +48,8 @@ public class StaffResponse {
                 .phoneNumber(staff.getPhoneNumber())
                 .email(staff.getEmail())
                 .residentialAddress(staff.getResidentialAddress())
-                .branchName(staff.getBranch().getName())
+                .branchId(staff.getBranch() == null ? null : staff.getBranch().getId())
+                .branchName(staff.getBranch() == null ? null : staff.getBranch().getName())
                 .status(staff.getStaffStatus())
                 .roles(staff.getRoles() == null ? List.of() : staff.getRoles().stream().map(role -> role.getRole()).toList())
                 .createdAt(staff.getCreatedAt())

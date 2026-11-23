@@ -6,7 +6,10 @@ import com.bynexlabs.bankingbackend.DTO.collector.CollectorMemberResponse;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentResponse;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorSubmissionResponse;
+import com.bynexlabs.bankingbackend.DTO.location.LocationBatchRequest;
+import com.bynexlabs.bankingbackend.DTO.location.LocationBatchResponse;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
+import com.bynexlabs.bankingbackend.service.CollectorLocationService;
 import com.bynexlabs.bankingbackend.service.CollectorPaymentService;
 import com.bynexlabs.bankingbackend.service.CollectorSubmissionService;
 import jakarta.validation.Valid;
@@ -40,6 +43,8 @@ public class CollectorController {
 
     private final CollectorSubmissionService submissionService;
 
+    private final CollectorLocationService locationService;
+
     private final AuthenticatedStaffProvider staffProvider;
 
     /** Members in the collector's branch with their savings and shares accounts, for the app's offline list. */
@@ -66,6 +71,15 @@ public class CollectorController {
     public CollectorDaySummary payments(@RequestParam(required = false)
                                         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return paymentService.daySummary(staffProvider.getStaff(), date);
+    }
+
+    /**
+     * Location points from the phone: every 5 minutes and on each payment, offline ones in
+     * batches when the connection returns (at most 500 a call). Re-sent points are stored once.
+     */
+    @PostMapping("/v1/locations")
+    public LocationBatchResponse recordLocations(@Valid @RequestBody LocationBatchRequest request) {
+        return locationService.record(request, staffProvider.getStaff());
     }
 
     /**

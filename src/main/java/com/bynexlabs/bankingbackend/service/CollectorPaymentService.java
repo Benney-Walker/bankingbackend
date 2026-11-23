@@ -71,6 +71,8 @@ public class CollectorPaymentService {
 
     private final CollectorSubmissionService submissionService;
 
+    private final CollectorLocationService locationService;
+
     /** Replaceable in tests. */
     Clock clock = Clock.system(ZoneId.of("Africa/Accra"));
 
@@ -110,6 +112,8 @@ public class CollectorPaymentService {
         }
         // Once the collector has submitted for the day, nothing more can be recorded.
         submissionService.requireCanRecord(collector);
+        // Owner decision 2026-11-23: no recent location, no payment.
+        locationService.requireRecentLocation(collector, request.getRecordedAt(), now);
 
         MemberAccount account = findAccount(request.getAccountNumber());
         requireAccountForType(account, request.getType());

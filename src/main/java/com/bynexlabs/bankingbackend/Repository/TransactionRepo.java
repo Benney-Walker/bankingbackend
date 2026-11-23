@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.Lock;
 import jakarta.persistence.LockModeType;
@@ -59,6 +60,9 @@ public interface TransactionRepo extends JpaRepository<Transaction, UUID> {
     List<Transaction> findPendingCollectorPayments(@Param("collectorId") UUID collectorId);
 
     List<Transaction> findByCollectorSubmission_IdOrderByCreatedAtAsc(UUID submissionId);
+
+    /** Payments named by the location points of a collector's trail. */
+    List<Transaction> findByIdempotencyKeyIn(Collection<String> keys);
 
     /** Collector payments whose correction window closed before the given time, oldest first. */
     @Query(value = """

@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.eq;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -55,6 +56,9 @@ class CollectorPaymentServiceTest {
 
     private static final ZoneId ACCRA = ZoneId.of("Africa/Accra");
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 14, 10, 0);
+
+    @Mock
+    private CollectorLocationService locationService;
 
     @Mock
     private CollectorSubmissionService submissionService;
@@ -80,7 +84,7 @@ class CollectorPaymentServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CollectorPaymentService(transactionRepo, transactionService, memberAccountRepo, correctionRepo, applier, submissionService);
+        service = new CollectorPaymentService(transactionRepo, transactionService, memberAccountRepo, correctionRepo, applier, submissionService, locationService);
         service.clock = Clock.fixed(NOW.atZone(ACCRA).toInstant(), ACCRA);
         lenient().when(transactionService.record(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -269,6 +273,18 @@ class CollectorPaymentServiceTest {
 
         assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
                 .isInstanceOf(ConflictException.class);
+    }
+
+    // Owner decision 2026-11-23: no recent location, no payment.
+    @Test
+    void paymentsAreRefusedWithoutARecentLocation() {
+        org.mockito.Mockito.doThrow(new ConflictException("No location from this phone in the last 15 minutes. Turn on location and try again"))
+                .when(locationService).requireRecentLocation(eq(collector), any(), any());
+
+        assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("No location");
+        verify(transactionService, never()).record(any());
     }
 
     // Owner decision 2026-11-15: submitting closes the day.

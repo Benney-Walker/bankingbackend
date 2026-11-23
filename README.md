@@ -117,6 +117,8 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "recordedAt" }`. See "Collector recording" |
 | PUT | `/api/collector/v1/payments/{transactionId}` | Collector: correction within 10 minutes, body `{ "amount", "accountNumber" }` (either or both) |
 | GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
+| POST | `/api/collector/v1/locations` | Collector: location points `{ "points": [{ latitude, longitude, accuracyMeters, batteryPercent?, trigger: EVERY_5_MIN \| PAYMENT, paymentIdempotencyKey (PAYMENT only), recordedAt }] }`, up to 500 a call; re-sent points stored once. Returns `{ stored, duplicates }` |
+| GET | `/api/transaction/v1/collector-locations/{collectorStaffId}?date=` | A collector's points for a day (default today) in time order, with each PAYMENT point's payment (type, amount, status, member name, account number). Agents: own branch's collectors (403 otherwise); administrators all |
 | POST | `/api/collector/v1/submissions` | Collector: close the day and submit every payment not yet handed in. See "Daily submission" |
 | GET | `/api/collector/v1/submissions?page=0&size=20` | Collector: their submissions and outcomes, newest first |
 | GET | `/api/transaction/v1/collector-submissions?status=SUBMITTED&page=0&size=20` | Collector submissions by status (`SUBMITTED`, `APPROVED`). Agents: their branch's collectors only; administrators: every branch |
@@ -217,6 +219,13 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 
 
 **Day summary:** `GET /api/collector/v1/payments?date=` lists the collector's payments for the day with the number of payments and savings, shares and overall totals (failed payments not counted).
+
+### Location (owner decisions 2026-11-23)
+
+- The app sends a point every 5 minutes and on each payment (`POST /api/collector/v1/locations`), with offline points in batches when the connection returns.
+- **No recent location, no payment:** a new payment is refused (409) unless a point arrived from the phone in the last 15 minutes. For a payment recorded offline, a point must have been taken within 15 minutes of it, so the app must send its points before its payments.
+- The office sees a collector's day trail with payments placed on it; agents for their own branch, administrators for all.
+- Points are deleted 90 days after they were taken (`COLLECTOR_LOCATION_CLEANUP_CRON`, default 03:45 daily).
 
 ### Daily submission
 
@@ -338,6 +347,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V38 | Removes withdrawal requests: drops `withdrawal_request` and its corrections; `collector_correction.record_type` is `PAYMENT` only |
 | V39 | Sessions: `refresh_token` (hashed, rotating) and `staffs.sessions_valid_after`. Collector daily submissions: `collector_submission` (one open per collector, final once approved), `transaction.collector_submission_id`, GL **2030 Cash Overages (Suspense)** and `COLLECTOR_HANDOVER` posting rules (amount parts `SETTLED`, `OVERAGE`) |
 | V40 | `member_update_request`: proposed member updates (one waiting per member, reason required to reject, final once reviewed) |
+| V41 | `collector_location`: location points (position, accuracy, battery, trigger, phone and server time), one row per collector, phone time and trigger |
 
 ## Status
 

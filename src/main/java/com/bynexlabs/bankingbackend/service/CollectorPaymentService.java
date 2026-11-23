@@ -1,11 +1,9 @@
 package com.bynexlabs.bankingbackend.service;
 
-import com.bynexlabs.bankingbackend.DTO.collector.CollectorCorrectionRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorDaySummary;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorMemberResponse;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentResponse;
-import com.bynexlabs.bankingbackend.Repository.CollectorCorrectionRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
 import com.bynexlabs.bankingbackend.Repository.TransactionRepo;
 import com.bynexlabs.bankingbackend.Utility.CollectorRules;
@@ -13,16 +11,13 @@ import com.bynexlabs.bankingbackend.Utility.MoneyRules;
 import com.bynexlabs.bankingbackend.enums.AccountStatus;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.CollectorPaymentType;
-import com.bynexlabs.bankingbackend.enums.CorrectionRecordType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.enums.TransactionChannel;
 import com.bynexlabs.bankingbackend.enums.TransactionStatus;
 import com.bynexlabs.bankingbackend.enums.TransactionType;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
-import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.exception.ResourceNotFoundException;
-import com.bynexlabs.bankingbackend.models.CollectorCorrection;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.models.Transaction;
@@ -49,9 +44,10 @@ import java.util.UUID;
  *   purchase into their shares account);
  * - any member in the collector's branch, but only after the member's first deposit, which
  *   must be made at the office;
- * - saved straight away as PENDING; the collector can correct the amount or move it to the
- *   member's other account for 10 minutes; then CollectorPaymentFinalizer applies it (balance,
- *   ledger, member SMS). Offline records arrive final and are applied on arrival.
+ * - final on arrival (owner decision 2026-11-23): the app keeps a new payment for 5 minutes, during
+ *   which the collector can correct it in the app, then sends it with the phone's createdAt and
+ *   updatedAt. The backend applies it straight away (balance, ledger, member SMS) and notes when it
+ *   received it. The phone's createdAt decides the collector's day.
  */
 @Service
 @RequiredArgsConstructor
@@ -64,8 +60,6 @@ public class CollectorPaymentService {
     private final TransactionService transactionService;
 
     private final MemberAccountRepo memberAccountRepo;
-
-    private final CollectorCorrectionRepo correctionRepo;
 
     private final CollectorPaymentApplier applier;
 
@@ -98,22 +92,24 @@ public class CollectorPaymentService {
         BigDecimal amount = MoneyRules.requireValidAmount(request.getAmount());
         String key = TransactionService.requireValidKey(request.getIdempotencyKey());
         LocalDateTime now = LocalDateTime.now(clock);
-        CollectorRules.requireValidRecordedAt(request.getRecordedAt(), now);
+        CollectorRules.requireValidPhoneTimes(request.getCreatedAt(), request.getUpdatedAt(), now);
 
-        // A retry or offline re-sync of a payment already saved returns it as it is now, even if
-        // the collector corrected it since. The key lock makes a simultaneous duplicate wait for
-        // the first request and then get its payment, instead of a unique-key 409.
+        // A retry or offline re-sync of a payment already saved returns it as it is. The key lock
+        // makes a simultaneous duplicate wait for the first request and then get its payment,
+        // instead of a unique-key 409.
         transactionRepo.lockIdempotencyKey(key);
         Optional<Transaction> existing = transactionRepo.findByIdempotencyKey(key);
         if (existing.isPresent()) {
-            Transaction payment = requireOwnPayment(existing.get(), collector, true);
+            Transaction payment = requireOwnPayment(existing.get(), collector);
             requireSamePayment(payment, request, amount);
             return response(payment);
         }
         // Once the collector has submitted for the day, nothing more can be recorded.
         submissionService.requireCanRecord(collector);
-        // Owner decision 2026-11-23: no recent location, no payment.
-        locationService.requireRecentLocation(collector, request.getRecordedAt(), now);
+        // A payment from a day already handed in can't be added afterwards.
+        submissionService.requireCreatedAfterLastSubmission(collector, request.getCreatedAt());
+        // Owner decision 2026-11-23: no location near the time of the payment, no payment.
+        locationService.requireRecentLocation(collector, request.getCreatedAt());
 
         MemberAccount account = findAccount(request.getAccountNumber());
         requireAccountForType(account, request.getType());
@@ -131,65 +127,13 @@ public class CollectorPaymentService {
                         ? null : request.getDescription().trim())
                 .status(TransactionStatus.PENDING)
                 .channel(TransactionChannel.COLLECTOR)
-                .createdAt(now)
-                .recordedAt(request.getRecordedAt())
+                .createdAt(request.getCreatedAt())
+                .updatedAt(request.getUpdatedAt())
+                .receivedAt(now)
                 .build());
 
-        // D40: an offline record is sent only after its 10 minutes, so it's final already.
-        if (request.getRecordedAt() != null) {
-            applier.apply(transaction);
-        }
-        return response(transaction);
-    }
-
-    /**
-     * Changes the amount and/or moves the payment to the member's other collector account
-     * (savings or shares), within 10 minutes of saving and only by the collector who recorded it.
-     * Each change is kept as a CollectorCorrection.
-     */
-    @Transactional
-    public CollectorPaymentResponse correct(UUID transactionId, CollectorCorrectionRequest request, Staff collector) {
-        Transaction transaction = transactionRepo.lockById(transactionId)
-                .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
-        requireOwnPayment(transaction, collector, false);
-        LocalDateTime now = LocalDateTime.now(clock);
-        if (transaction.getStatus() != TransactionStatus.PENDING
-                || !CollectorRules.windowOpen(transaction.getCreatedAt(), transaction.getRecordedAt(), now)) {
-            throw new ConflictException("The 10-minute correction window for this payment has closed");
-        }
-
-        BigDecimal newAmount = request.getAmount() == null
-                ? transaction.getAmount() : MoneyRules.requireValidAmount(request.getAmount());
-        MemberAccount current = transaction.getMemberAccount();
-        MemberAccount newAccount = current;
-        if (request.getAccountNumber() != null && !request.getAccountNumber().trim().equals(current.getAccountNumber())) {
-            newAccount = findAccount(request.getAccountNumber());
-            if (!newAccount.getMember().getId().equals(current.getMember().getId())) {
-                throw new BadRequestException("A payment can only move to another account of the same member");
-            }
-            if (!COLLECTOR_ACCOUNT_TYPES.contains(newAccount.getAccountType())) {
-                throw new BadRequestException("Collectors record only into savings or shares accounts");
-            }
-            CollectorRules.requireActive(newAccount);
-        }
-        if (newAmount.compareTo(transaction.getAmount()) == 0 && newAccount == current) {
-            return response(transaction);
-        }
-
-        correctionRepo.save(CollectorCorrection.builder()
-                .recordType(CorrectionRecordType.PAYMENT)
-                .recordId(transaction.getId())
-                .previousAmount(transaction.getAmount())
-                .previousAccount(current)
-                .newAmount(newAmount)
-                .newAccount(newAccount)
-                .correctedBy(collector)
-                .correctedAt(now)
-                .build());
-        transaction.setAmount(newAmount);
-        transaction.setMemberAccount(newAccount);
-        transaction.setTransactionType(newAccount.getAccountType() == AccountType.SHARES
-                ? TransactionType.SHARES : TransactionType.DEPOSIT);
+        // Final on arrival: applied now, COMPLETED or FAILED with the reason.
+        applier.apply(transaction);
         return response(transaction);
     }
 
@@ -218,9 +162,7 @@ public class CollectorPaymentService {
     }
 
     private CollectorPaymentResponse response(Transaction transaction) {
-        LocalDateTime until = transaction.getStatus() == TransactionStatus.PENDING
-                ? CollectorRules.correctableUntil(transaction.getCreatedAt(), transaction.getRecordedAt()) : null;
-        return CollectorPaymentResponse.from(transaction, until);
+        return CollectorPaymentResponse.from(transaction);
     }
 
     private MemberAccount findAccount(String accountNumber) {
@@ -249,43 +191,25 @@ public class CollectorPaymentService {
     }
 
     /**
-     * A re-sent key must describe the same payment: the request matches the payment as first
-     * saved, or as it is after corrections (the app may re-send either). Otherwise the key was
-     * reused for a different payment, which must not be silently swallowed.
+     * A re-sent key must describe the same payment. Otherwise the key was reused for a different
+     * payment, which must not be silently swallowed.
      */
-    private void requireSamePayment(Transaction payment, CollectorPaymentRequest request, BigDecimal amount) {
+    private static void requireSamePayment(Transaction payment, CollectorPaymentRequest request, BigDecimal amount) {
         String accountNumber = request.getAccountNumber() == null ? null : request.getAccountNumber().trim();
-        TransactionType type = typeFor(request.getType());
-        boolean matchesNow = payment.getTransactionType() == type
+        boolean same = payment.getTransactionType() == typeFor(request.getType())
                 && payment.getAmount().compareTo(amount) == 0
                 && payment.getMemberAccount().getAccountNumber().equals(accountNumber);
-        if (matchesNow) {
-            return;
-        }
-        boolean matchesFirstSaved = correctionRepo
-                .findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, payment.getId())
-                .filter(first -> first.getPreviousAmount().compareTo(amount) == 0
-                        && first.getPreviousAccount().getAccountNumber().equals(accountNumber)
-                        && typeFor(first.getPreviousAccount().getAccountType()) == type)
-                .isPresent();
-        if (!matchesFirstSaved) {
+        if (!same) {
             throw new ConflictException("This idempotency key was already used for a different transaction");
         }
     }
 
-    private static TransactionType typeFor(AccountType accountType) {
-        return accountType == AccountType.SHARES ? TransactionType.SHARES : TransactionType.DEPOSIT;
-    }
-
-    private static Transaction requireOwnPayment(Transaction transaction, Staff collector, boolean forReplay) {
+    private static Transaction requireOwnPayment(Transaction transaction, Staff collector) {
         boolean own = transaction.getChannel() == TransactionChannel.COLLECTOR
                 && transaction.getInitiatedBy() != null
                 && transaction.getInitiatedBy().getId().equals(collector.getId());
         if (!own) {
-            if (forReplay) {
-                throw new ConflictException("This idempotency key was already used for a different transaction");
-            }
-            throw new ForbiddenException("You can only correct payments you recorded");
+            throw new ConflictException("This idempotency key was already used for a different transaction");
         }
         return transaction;
     }

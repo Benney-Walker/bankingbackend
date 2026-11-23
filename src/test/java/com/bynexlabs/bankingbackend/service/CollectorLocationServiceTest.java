@@ -127,26 +127,17 @@ class CollectorLocationServiceTest {
 
     // --- payments need a recent location (owner decision 2026-11-23) --------------------------
 
+    // Every payment arrives after the app's 5 minutes (2026-11-23), so the check uses its phone time.
     @Test
-    void onlinePaymentNeedsAPointReceivedInTheLast15Minutes() {
-        when(locationRepo.existsByCollectorIdAndReceivedAtGreaterThanEqual(collector.getId(), NOW.minusMinutes(15)))
-                .thenReturn(false, true);
+    void paymentNeedsAPointTakenWithin15MinutesOfIt() {
+        LocalDateTime createdAt = NOW.minusHours(2);
+        when(locationRepo.existsByCollectorIdAndRecordedAtBetween(collector.getId(), createdAt.minusMinutes(15),
+                createdAt.plusMinutes(15))).thenReturn(false, true);
 
-        assertThatThrownBy(() -> service.requireRecentLocation(collector, null, NOW))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("No location from this phone in the last 15 minutes. Turn on location and try again");
-        service.requireRecentLocation(collector, null, NOW);
-    }
-
-    @Test
-    void offlinePaymentNeedsAPointTakenWithin15MinutesOfIt() {
-        LocalDateTime recordedAt = NOW.minusHours(2);
-        when(locationRepo.existsByCollectorIdAndRecordedAtBetween(collector.getId(), recordedAt.minusMinutes(15),
-                recordedAt.plusMinutes(15))).thenReturn(false);
-
-        assertThatThrownBy(() -> service.requireRecentLocation(collector, recordedAt, NOW))
+        assertThatThrownBy(() -> service.requireRecentLocation(collector, createdAt))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("within 15 minutes of this payment");
+        service.requireRecentLocation(collector, createdAt);
     }
 
     // --- office view ----------------------------------------------------------------------

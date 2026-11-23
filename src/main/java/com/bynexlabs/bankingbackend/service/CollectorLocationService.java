@@ -81,21 +81,17 @@ public class CollectorLocationService {
     }
 
     /**
-     * Called before a new payment is saved. Online ({@code recordedAt} null): a point must have
-     * arrived from the phone in the last 15 minutes. Offline: a point must have been taken within
-     * 15 minutes of the payment, so the app sends its points before its payments.
+     * Called before a new payment is saved. Every payment now arrives at least 5 minutes after it
+     * was made (owner decision 2026-11-23), so the check uses the phone's times: a point must have
+     * been taken within 15 minutes of the payment's createdAt. The app sends its points before its
+     * payments.
      */
     @Transactional(propagation = Propagation.MANDATORY, readOnly = true)
-    public void requireRecentLocation(Staff collector, LocalDateTime recordedAt, LocalDateTime now) {
-        if (recordedAt == null) {
-            if (!locationRepo.existsByCollectorIdAndReceivedAtGreaterThanEqual(collector.getId(), now.minus(RECENT))) {
-                throw new ConflictException("No location from this phone in the last 15 minutes. "
-                        + "Turn on location and try again");
-            }
-        } else if (!locationRepo.existsByCollectorIdAndRecordedAtBetween(collector.getId(),
-                recordedAt.minus(RECENT), recordedAt.plus(RECENT))) {
+    public void requireRecentLocation(Staff collector, LocalDateTime paymentCreatedAt) {
+        if (!locationRepo.existsByCollectorIdAndRecordedAtBetween(collector.getId(),
+                paymentCreatedAt.minus(RECENT), paymentCreatedAt.plus(RECENT))) {
             throw new ConflictException("No location was recorded within 15 minutes of this payment. "
-                    + "Send the phone's location points first");
+                    + "Turn on location and send the phone's location points first");
         }
     }
 

@@ -29,9 +29,6 @@ public interface CollectorLocationRepo extends JpaRepository<CollectorLocation, 
                     @Param("paymentKey") String paymentKey, @Param("recordedAt") LocalDateTime recordedAt,
                     @Param("receivedAt") LocalDateTime receivedAt);
 
-    /** A point arrived from this collector's phone since the given server time. */
-    boolean existsByCollectorIdAndReceivedAtGreaterThanEqual(UUID collectorId, LocalDateTime since);
-
     /** A point was taken (phone time) in the given period. */
     boolean existsByCollectorIdAndRecordedAtBetween(UUID collectorId, LocalDateTime from, LocalDateTime to);
 

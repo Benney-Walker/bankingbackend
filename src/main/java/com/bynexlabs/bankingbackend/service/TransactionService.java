@@ -74,6 +74,10 @@ public class TransactionService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Transaction record(Transaction transaction) {
+        // Office transactions are received when they're created; collector payments set their own.
+        if (transaction.getReceivedAt() == null) {
+            transaction.setReceivedAt(transaction.getCreatedAt());
+        }
         try {
             return transactionRepo.saveAndFlush(transaction);
         } catch (DataIntegrityViolationException e) {

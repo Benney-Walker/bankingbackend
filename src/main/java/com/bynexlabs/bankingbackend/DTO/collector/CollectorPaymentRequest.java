@@ -15,8 +15,9 @@ import java.time.LocalDateTime;
 /**
  * A payment a collector takes from a member: a savings deposit or a share purchase. The app
  * makes idempotencyKey once per payment and re-sends it on retries and offline sync.
- * recordedAt is set only for payments recorded offline: the app sends those after their 10
- * minutes have passed, so they're applied as soon as they arrive.
+ * The app keeps a new payment for 5 minutes, during which the collector can correct it, then
+ * sends it with the phone's createdAt and updatedAt (owner decision 2026-11-23). The backend
+ * applies it as soon as it arrives.
  */
 @Data
 @Builder
@@ -40,6 +41,11 @@ public class CollectorPaymentRequest {
     @Size(max = 500, message = "Description must be at most 500 characters")
     private String description;
 
-    /** Device time, for payments recorded offline only. */
-    private LocalDateTime recordedAt;
+    /** Phone time the payment was recorded (Africa/Accra): decides the collector's day. */
+    @NotNull(message = "createdAt is required")
+    private LocalDateTime createdAt;
+
+    /** Phone time of the last correction in the app; the same as createdAt if never corrected. */
+    @NotNull(message = "updatedAt is required")
+    private LocalDateTime updatedAt;
 }

@@ -141,6 +141,7 @@ class CollectorPaymentApplierTest {
         verifyNoInteractions(accountLockService);
     }
 
+    // Clean-up for payments saved PENDING under the old 10-minute window: any age is applied now.
     @Test
     void finaliserAppliesEveryDuePaymentAndCarriesOnAfterAFailure() {
         CollectorPaymentApplier mockApplier = mock(CollectorPaymentApplier.class);
@@ -148,7 +149,7 @@ class CollectorPaymentApplierTest {
         finalizer.clock = Clock.fixed(NOW.atZone(ACCRA).toInstant(), ACCRA);
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
-        when(transactionRepo.findDuePendingCollectorPayments(NOW.minusMinutes(10), 100)).thenReturn(List.of(first, second));
+        when(transactionRepo.findDuePendingCollectorPayments(NOW, 100)).thenReturn(List.of(first, second));
         doThrow(new IllegalStateException("ledger broken")).when(mockApplier).finaliseDue(first);
 
         finalizer.finaliseDuePayments();

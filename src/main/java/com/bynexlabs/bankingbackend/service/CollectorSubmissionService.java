@@ -5,7 +5,6 @@ import com.bynexlabs.bankingbackend.DTO.collector.CollectorSubmissionResponse;
 import com.bynexlabs.bankingbackend.Repository.CollectorSubmissionRepo;
 import com.bynexlabs.bankingbackend.Repository.StaffRepo;
 import com.bynexlabs.bankingbackend.Repository.TransactionRepo;
-import com.bynexlabs.bankingbackend.Utility.CollectorRules;
 import com.bynexlabs.bankingbackend.Utility.MoneyRules;
 import com.bynexlabs.bankingbackend.enums.AmountPart;
 import com.bynexlabs.bankingbackend.enums.CollectorSubmissionStatus;
@@ -35,17 +34,18 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Collector daily cash submission (owner decisions 2026-11-15):
- * 1. The collector taps submit to close the day. Allowed once none of their payments is still in
- *    its 10-minute window. It covers every payment not yet in a submission: COMPLETED ones make up
- *    the expected cash, FAILED ones are counted separately. From then on they can't record.
+ * 1. The collector taps submit to close the day. The app first sends every payment it is still
+ *    holding in its 5-minute window (owner decision 2026-11-23). It covers every payment not yet
+ *    in a submission: COMPLETED ones make up the expected cash, FAILED ones are counted
+ *    separately. From then on they can't record, and a payment created before the submission
+ *    can't be added later.
  * 2. The agent of the collector's branch, or an administrator, counts the cash and approves with
  *    the amount counted. The counted cash moves from 1015 Cash with Collectors to 1010 Cash on
  *    Hand; a surplus goes to 2030 Cash Overages (Suspense). No shortage is allowed (owner
@@ -59,7 +59,7 @@ public class CollectorSubmissionService {
 
     private static final int MAX_PAGE_SIZE = 100;
 
-    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", Locale.ENGLISH);
 
     private final CollectorSubmissionRepo submissionRepo;
 
@@ -92,17 +92,10 @@ public class CollectorSubmissionService {
             throw new ConflictException("Your collections for today have already been approved");
         }
 
-        List<Transaction> pending = transactionRepo.findPendingCollectorPayments(locked.getId());
-        if (!pending.isEmpty()) {
-            LocalDateTime lastWindowCloses = pending.stream()
-                    .map(payment -> CollectorRules.correctableUntil(payment.getCreatedAt(), payment.getRecordedAt()))
-                    .filter(Objects::nonNull)
-                    .max(Comparator.naturalOrder())
-                    .orElse(now);
-            throw new ConflictException(pending.size() + " payment(s) are still in their 10-minute correction window. "
-                    + (lastWindowCloses.isAfter(now)
-                        ? "You can submit after " + lastWindowCloses.format(TIME)
-                        : "They're being finalised; try again in a minute"));
+        // Payments are applied on arrival (2026-11-23). Only a payment saved under the old
+        // 10-minute window can still be PENDING; CollectorPaymentFinalizer applies it within a minute.
+        if (!transactionRepo.findPendingCollectorPayments(locked.getId()).isEmpty()) {
+            throw new ConflictException("Some of your payments are still being applied. Try again in a minute");
         }
 
         List<Transaction> payments = transactionRepo.findUnsubmittedCollectorPayments(locked.getId());
@@ -155,6 +148,22 @@ public class CollectorSubmissionService {
         if (closedOn(locked.getId(), LocalDate.now(clock))) {
             throw new ConflictException("Your collections for today have been approved. You can record again tomorrow");
         }
+    }
+
+    /**
+     * Owner decision 2026-11-23: a payment can arrive any time before its day is submitted. One
+     * the phone created before the collector's latest submission belongs to a day already handed
+     * in, so it's refused.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void requireCreatedAfterLastSubmission(Staff collector, LocalDateTime createdAt) {
+        submissionRepo.findFirstByCollector_IdOrderBySubmittedAtDesc(collector.getId())
+                .filter(last -> !createdAt.isAfter(last.getSubmittedAt()))
+                .ifPresent(last -> {
+                    throw new ConflictException("This payment was recorded before your submission of "
+                            + last.getSubmittedAt().format(DATE_TIME) + " and can't be added to it now. "
+                            + "See the office");
+                });
     }
 
     /** True once the collector's submission made today has been approved: they stay signed out until tomorrow. */
@@ -289,7 +298,7 @@ public class CollectorSubmissionService {
     private CollectorSubmissionResponse response(CollectorSubmission submission, boolean withPayments) {
         List<CollectorPaymentResponse> payments = withPayments
                 ? transactionRepo.findByCollectorSubmission_IdOrderByCreatedAtAsc(submission.getId()).stream()
-                    .map(payment -> CollectorPaymentResponse.from(payment, null)).toList()
+                    .map(payment -> CollectorPaymentResponse.from(payment)).toList()
                 : null;
         return CollectorSubmissionResponse.from(submission, payments);
     }

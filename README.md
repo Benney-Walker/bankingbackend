@@ -33,7 +33,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
 | Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
-| Collector payments | `COLLECTOR_FINALIZE_INTERVAL_MS` (optional, default `60000`): how often collector payments whose 10-minute window has closed are applied |
+| Collector payments | `COLLECTOR_FINALIZE_INTERVAL_MS` (optional, default `60000`): how often any payment still `PENDING` from the old 10-minute window is applied (payments are now applied on arrival) |
 | CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
 | API docs | `API_DOCS_ENABLED` (optional, default `false`): serve `/v3/api-docs` and Swagger UI. Leave off in production |
 
@@ -115,8 +115,7 @@ Access is set by URL in `SecurityConfig`:
 | GET | `/api/transaction/v1/account/{accountNumber}` | Account balances, type, status and owner |
 | GET | `/api/transaction/v1/history/{accountNumber}?page=0&size=20` | The account's transactions, newest first, `size` 1–100. Includes transfers into it and first deposits that bought its shares |
 | GET | `/api/collector/v1/members` | Collector: members in their branch with their savings and shares accounts (`memberName`, `accounts[]` of `accountNumber` and `accountType`); no other details, no balances |
-| POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "recordedAt" }`. See "Collector recording" |
-| PUT | `/api/collector/v1/payments/{transactionId}` | Collector: correction within 10 minutes, body `{ "amount", "accountNumber" }` (either or both) |
+| POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "createdAt", "updatedAt" }` (phone times, both required). Applied on arrival. See "Collector recording" |
 | GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
 | POST | `/api/collector/v1/locations` | Collector: location points `{ "points": [{ latitude, longitude, accuracyMeters, batteryPercent?, trigger: EVERY_5_MIN \| PAYMENT, paymentIdempotencyKey (PAYMENT only), recordedAt }] }`, up to 500 a call; re-sent points stored once. Returns `{ stored, duplicates }` |
 | GET | `/api/transaction/v1/collector-locations/{collectorStaffId}?date=` | A collector's points for a day (default today) in time order, with each PAYMENT point's payment (type, amount, status, member name, account number). Agents: own branch's collectors (403 otherwise); administrators all |
@@ -209,14 +208,15 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 - Any member in the collector's own branch (403 otherwise). The account and member must be ACTIVE (409).
 - The member's **first deposit must be made at the office** (409 until then).
 - `type` must match the account: SAVINGS → savings account, SHARES → shares account (400).
-- `idempotencyKey` is made once per payment by the app; re-sending it (retry or offline sync) returns the payment as it is now, even after a correction. The re-sent request must match the payment as first saved or as it is now (account, type, amount); a key reused for a different payment → 409, so it can't be silently swallowed. Two requests with the same key arriving together are handled one after the other (a PostgreSQL advisory lock on the key), so the second gets the payment rather than an error.
-- Corrections (`PUT`) are safe to repeat: sending the same values again changes nothing and saves no new correction.
+- `idempotencyKey` is made once per payment by the app; re-sending it (retry or offline sync) returns the payment as saved. The re-sent request must match it (account, type, amount); a key reused for a different payment → 409, so it can't be silently swallowed. Two requests with the same key arriving together are handled one after the other (a PostgreSQL advisory lock on the key), so the second gets the payment rather than an error.
 
-**10-minute correction window:**
-1. A payment is saved straight away as `PENDING`; nothing changes on the account yet. The response says until when it can be corrected (`correctableUntil`).
-2. Within those 10 minutes, the collector who recorded it can change the amount or move it to the member's other account (savings ↔ shares, which changes it to a deposit or a share purchase): `PUT /api/collector/v1/payments/{id}`. Each change is saved in `collector_correction` with the before and after values, so the original is kept. After 10 minutes → 409.
-3. When the window closes, `CollectorPaymentFinalizer` (every `COLLECTOR_FINALIZE_INTERVAL_MS`, default 1 minute) applies it: balance up, journal posted (cash debited to **1015 Cash with Collectors**), status `COMPLETED`, member SMS. If the account was frozen or closed meanwhile, the payment is marked `FAILED` with `failureReason` instead, since the cash is already with the collector.
-4. **Offline records:** the app sends them only after their 10 minutes have passed, with `recordedAt` (device time). They're final: applied as soon as they arrive, no corrections. A `recordedAt` more than 5 minutes ahead of the server clock → 400.
+**Final on arrival (owner decision 2026-11-23, V45):**
+1. The app keeps a new payment for **5 minutes**, during which the collector can correct it in the app. The backend counts no window and has no correction endpoint (the old `PUT` was removed).
+2. The app then sends it with the phone's `createdAt` (when the cash was taken) and `updatedAt` (last correction in the app; the same as `createdAt` if never corrected). Either more than 5 minutes ahead of the server clock, or `updatedAt` before `createdAt` → 400.
+3. The backend applies it straight away and stores `receivedAt` (server time): balance up, journal posted (cash debited to **1015 Cash with Collectors**), status `COMPLETED`, member SMS. If the account was frozen or closed meanwhile, the payment is marked `FAILED` with `failureReason` instead, since the cash is already with the collector.
+4. The phone's `createdAt` decides the collector's day (day summary, submission) and the date on statements.
+5. A payment can arrive any time before its day is submitted: one created before the collector's latest submission → 409.
+6. Payments saved `PENDING` under the old 10-minute window are applied by `CollectorPaymentFinalizer` (every `COLLECTOR_FINALIZE_INTERVAL_MS`).
 
 
 **Day summary:** `GET /api/collector/v1/payments?date=` lists the collector's payments for the day with the number of payments and savings, shares and overall totals (failed payments not counted).
@@ -230,7 +230,7 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 ### Location (owner decisions 2026-11-23)
 
 - The app sends a point every 5 minutes and on each payment (`POST /api/collector/v1/locations`), with offline points in batches when the connection returns.
-- **No recent location, no payment:** a new payment is refused (409) unless a point arrived from the phone in the last 15 minutes. For a payment recorded offline, a point must have been taken within 15 minutes of it, so the app must send its points before its payments.
+- **No location, no payment:** a new payment is refused (409) unless a point was taken (phone time) within 15 minutes of the payment's `createdAt`, so the app must send its points before its payments.
 - The office sees a collector's day trail with payments placed on it; agents for their own branch, administrators for all.
 - Points are deleted 90 days after they were taken (`COLLECTOR_LOCATION_CLEANUP_CRON`, default 03:45 daily).
 
@@ -238,7 +238,7 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 
 Owner decisions 2026-11-15:
 
-1. **The collector closes the day** with `POST /api/collector/v1/submissions`. Allowed once none of their payments is still in its 10-minute window (409 with the time they can submit). The submission covers **every payment not yet in a submission**, so a missed day is picked up: `COMPLETED` payments make up `expectedAmount`; `FAILED` ones are counted separately (`failedCount`, `failedAmount`) for the approver. Submitting again while waiting returns the same submission. The app must sync offline payments before submitting.
+1. **The collector closes the day** with `POST /api/collector/v1/submissions`. The app first sends every payment still in its 5-minute window (owner decision 2026-11-23). The submission covers **every payment not yet in a submission**, so a missed day is picked up: `COMPLETED` payments make up `expectedAmount`; `FAILED` ones are counted separately (`failedCount`, `failedAmount`) for the approver. Submitting again while waiting returns the same submission. The app must sync offline payments before submitting.
 2. **No more recording.** From then on, new payments (including offline ones) → 409 until the submission is approved. Retries of payments already saved still return them.
 3. **Approval.** The agent of the collector's branch (403 for another branch) or an administrator counts the cash and approves with `countedAmount`. A handover transaction (`COLLECTOR_HANDOVER`, no member account) posts: debit **1010 Cash on Hand** with the cash counted, credit **1015 Cash with Collectors** with the expected amount, and credit **2030 Cash Overages (Suspense)** with any surplus. **No shortage is allowed** (owner decision 2026-11-23): a count below the expected cash is refused (409) and the submission stays waiting until the collector hands in the full amount. A day with nothing expected can be approved with 0, posting nothing. An approved submission is final (database trigger); approving again with the same amount returns it, a different amount → 409.
 4. **Sign-out.** Approval ends all the collector's sessions at once, and `collector-login` is refused (403) for the rest of the day the submission was made.
@@ -358,6 +358,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V42 | One phone per collector: `staffs.registered_device_id` and `device_registered_at`, `refresh_token.device_id`, revoke reason `DEVICE_RELEASED` |
 | V43 | `collector_shortage_repayment` and its posting rules (removed by V44 the same day) |
 | V44 | Shortages no longer allowed: drops `collector_shortage_repayment` and its posting rules |
+| V45 | Collector records final on arrival: `transaction.received_at` (server time, backfilled) and `updated_at` (phone's last edit); an offline record's `recorded_at` moves into `created_at`, then `recorded_at` is dropped. `collector_correction` is kept as history |
 
 ## Status
 

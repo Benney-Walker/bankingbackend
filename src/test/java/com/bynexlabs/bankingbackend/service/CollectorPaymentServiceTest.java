@@ -1,17 +1,14 @@
 package com.bynexlabs.bankingbackend.service;
 
-import com.bynexlabs.bankingbackend.DTO.collector.CollectorCorrectionRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorDaySummary;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorMemberResponse;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentRequest;
 import com.bynexlabs.bankingbackend.DTO.collector.CollectorPaymentResponse;
-import com.bynexlabs.bankingbackend.Repository.CollectorCorrectionRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
 import com.bynexlabs.bankingbackend.Repository.TransactionRepo;
 import com.bynexlabs.bankingbackend.enums.AccountStatus;
 import com.bynexlabs.bankingbackend.enums.AccountType;
 import com.bynexlabs.bankingbackend.enums.CollectorPaymentType;
-import com.bynexlabs.bankingbackend.enums.CorrectionRecordType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.enums.TransactionChannel;
 import com.bynexlabs.bankingbackend.enums.TransactionStatus;
@@ -20,7 +17,6 @@ import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
 import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.models.Branch;
-import com.bynexlabs.bankingbackend.models.CollectorCorrection;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import com.bynexlabs.bankingbackend.models.Staff;
@@ -48,7 +44,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -70,8 +65,6 @@ class CollectorPaymentServiceTest {
     @Mock
     private MemberAccountRepo memberAccountRepo;
     @Mock
-    private CollectorCorrectionRepo correctionRepo;
-    @Mock
     private CollectorPaymentApplier applier;
 
     private CollectorPaymentService service;
@@ -84,7 +77,7 @@ class CollectorPaymentServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CollectorPaymentService(transactionRepo, transactionService, memberAccountRepo, correctionRepo, applier, submissionService, locationService);
+        service = new CollectorPaymentService(transactionRepo, transactionService, memberAccountRepo, applier, submissionService, locationService);
         service.clock = Clock.fixed(NOW.atZone(ACCRA).toInstant(), ACCRA);
         lenient().when(transactionService.record(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -99,9 +92,13 @@ class CollectorPaymentServiceTest {
                 .status(AccountStatus.ACTIVE).currentBalance(BigDecimal.TEN).availableBalance(BigDecimal.TEN).build();
     }
 
+    // The app sends a payment after its 5-minute window, with the phone's times.
+    private static final LocalDateTime PHONE_CREATED = NOW.minusMinutes(6);
+    private static final LocalDateTime PHONE_UPDATED = NOW.minusMinutes(5);
+
     private static CollectorPaymentRequest payment(CollectorPaymentType type, String accountNumber, String amount) {
         return CollectorPaymentRequest.builder().idempotencyKey("key-1").type(type).accountNumber(accountNumber)
-                .amount(new BigDecimal(amount)).build();
+                .amount(new BigDecimal(amount)).createdAt(PHONE_CREATED).updatedAt(PHONE_UPDATED).build();
     }
 
     private void accountExists(MemberAccount account) {
@@ -122,9 +119,10 @@ class CollectorPaymentServiceTest {
 
     // --- recording ------------------------------------------------------------------------
 
-    // D39: saved straight away, but nothing moves until the 10 minutes are up.
+    // Owner decision 2026-11-23: final on arrival, with the phone's createdAt and updatedAt kept
+    // and the time the backend received it.
     @Test
-    void savingsDepositIsSavedPendingWithATenMinuteWindow() {
+    void savingsDepositIsAppliedOnArrivalWithThePhonesTimes() {
         accountExists(savings);
         firstDepositMade(true);
 
@@ -134,13 +132,17 @@ class CollectorPaymentServiceTest {
         verify(transactionService).record(saved.capture());
         Transaction transaction = saved.getValue();
         assertThat(transaction.getTransactionType()).isEqualTo(TransactionType.DEPOSIT);
-        assertThat(transaction.getStatus()).isEqualTo(TransactionStatus.PENDING);
         assertThat(transaction.getChannel()).isEqualTo(TransactionChannel.COLLECTOR);
         assertThat(transaction.getInitiatedBy()).isSameAs(collector);
-        assertThat(response.correctableUntil()).isEqualTo(NOW.plusMinutes(10));
+        assertThat(transaction.getCreatedAt()).isEqualTo(PHONE_CREATED);
+        assertThat(transaction.getUpdatedAt()).isEqualTo(PHONE_UPDATED);
+        assertThat(transaction.getReceivedAt()).isEqualTo(NOW);
+        verify(applier).apply(transaction);
+        verify(submissionService).requireCreatedAfterLastSubmission(collector, PHONE_CREATED);
+        verify(locationService).requireRecentLocation(collector, PHONE_CREATED);
+        assertThat(response.createdAt()).isEqualTo(PHONE_CREATED);
+        assertThat(response.receivedAt()).isEqualTo(NOW);
         assertThat(response.memberName()).isEqualTo("Ama Mensah");
-        assertThat(savings.getCurrentBalance()).isEqualByComparingTo("10");
-        verifyNoInteractions(applier);
     }
 
     @Test
@@ -189,42 +191,42 @@ class CollectorPaymentServiceTest {
                 .hasMessage("This member's first deposit must be made at the office");
     }
 
-    // D40: offline records arrive after their 10 minutes, so they're applied on arrival.
     @Test
-    void offlinePaymentIsAppliedOnArrival() {
-        accountExists(savings);
-        firstDepositMade(true);
+    void createdAtInTheFutureIsRejected() {
         CollectorPaymentRequest request = payment(CollectorPaymentType.SAVINGS, "1000000002", "20");
-        request.setRecordedAt(NOW.minusMinutes(45));
+        request.setCreatedAt(NOW.plusHours(1));
+        request.setUpdatedAt(NOW.plusHours(1));
 
-        CollectorPaymentResponse response = service.record(request, collector);
-
-        verify(applier).apply(any(Transaction.class));
-        assertThat(response.recordedAt()).isEqualTo(NOW.minusMinutes(45));
+        assertThatThrownBy(() -> service.record(request, collector)).isInstanceOf(BadRequestException.class);
+        verify(transactionService, never()).record(any());
     }
 
     @Test
-    void recordedAtInTheFutureIsRejected() {
+    void updatedAtBeforeCreatedAtIsRejected() {
         CollectorPaymentRequest request = payment(CollectorPaymentType.SAVINGS, "1000000002", "20");
-        request.setRecordedAt(NOW.plusHours(1));
+        request.setUpdatedAt(PHONE_CREATED.minusMinutes(1));
+
+        assertThatThrownBy(() -> service.record(request, collector))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("updatedAt can't be before createdAt");
+    }
+
+    @Test
+    void createdAtIsRequired() {
+        CollectorPaymentRequest request = payment(CollectorPaymentType.SAVINGS, "1000000002", "20");
+        request.setCreatedAt(null);
 
         assertThatThrownBy(() -> service.record(request, collector)).isInstanceOf(BadRequestException.class);
     }
 
-    // A retry after a correction still returns the payment instead of a conflict: the request
-    // matches the payment as first saved (20, before the correction to 25).
+    // Owner decision 2026-11-23: any age, as long as its day hasn't been submitted.
     @Test
-    void retryReturnsTheSavedPaymentAsItIsNow() {
-        Transaction saved = pending(savings, "25", NOW.minusMinutes(2));
-        when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(saved));
-        when(correctionRepo.findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, saved.getId()))
-                .thenReturn(Optional.of(CollectorCorrection.builder().previousAmount(new BigDecimal("20"))
-                        .previousAccount(savings).newAmount(new BigDecimal("25")).newAccount(savings).build()));
+    void paymentCreatedBeforeTheLastSubmissionIsRefused() {
+        org.mockito.Mockito.doThrow(new ConflictException("This payment was recorded before your submission"))
+                .when(submissionService).requireCreatedAfterLastSubmission(collector, PHONE_CREATED);
 
-        CollectorPaymentResponse response = service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector);
-
-        assertThat(response.amount()).isEqualByComparingTo("25");
-        verify(transactionRepo).lockIdempotencyKey("key-1");
+        assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
+                .isInstanceOf(ConflictException.class);
         verify(transactionService, never()).record(any());
     }
 
@@ -236,17 +238,15 @@ class CollectorPaymentServiceTest {
         CollectorPaymentResponse response = service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector);
 
         assertThat(response.amount()).isEqualByComparingTo("20");
-        verifyNoInteractions(correctionRepo);
+        verify(transactionRepo).lockIdempotencyKey("key-1");
         verify(transactionService, never()).record(any());
     }
 
-    // A key reused for another payment (different amount, never corrected) must not swallow it.
+    // A key reused for another payment (different amount) must not swallow it.
     @Test
     void keyReusedForADifferentPaymentIsAConflict() {
         Transaction saved = pending(savings, "25", NOW.minusMinutes(2));
         when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(saved));
-        when(correctionRepo.findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, saved.getId()))
-                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
                 .isInstanceOf(ConflictException.class)
@@ -258,8 +258,6 @@ class CollectorPaymentServiceTest {
     void keyReusedForAnotherMembersAccountIsAConflict() {
         Transaction saved = pending(savings, "20", NOW.minusMinutes(2));
         when(transactionRepo.findByIdempotencyKey("key-1")).thenReturn(Optional.of(saved));
-        when(correctionRepo.findFirstByRecordTypeAndRecordIdOrderByIdAsc(CorrectionRecordType.PAYMENT, saved.getId()))
-                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000099", "20"), collector))
                 .isInstanceOf(ConflictException.class);
@@ -275,11 +273,11 @@ class CollectorPaymentServiceTest {
                 .isInstanceOf(ConflictException.class);
     }
 
-    // Owner decision 2026-11-23: no recent location, no payment.
+    // Owner decision 2026-11-23: no location near the payment's time, no payment.
     @Test
-    void paymentsAreRefusedWithoutARecentLocation() {
-        org.mockito.Mockito.doThrow(new ConflictException("No location from this phone in the last 15 minutes. Turn on location and try again"))
-                .when(locationService).requireRecentLocation(eq(collector), any(), any());
+    void paymentsAreRefusedWithoutALocationNearTheirTime() {
+        org.mockito.Mockito.doThrow(new ConflictException("No location was recorded within 15 minutes of this payment"))
+                .when(locationService).requireRecentLocation(eq(collector), any());
 
         assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
                 .isInstanceOf(ConflictException.class)
@@ -296,74 +294,6 @@ class CollectorPaymentServiceTest {
         assertThatThrownBy(() -> service.record(payment(CollectorPaymentType.SAVINGS, "1000000002", "20"), collector))
                 .isInstanceOf(ConflictException.class);
         verify(transactionService, never()).record(any());
-    }
-
-    // --- corrections ----------------------------------------------------------------------
-
-    @Test
-    void correctionWithinTheWindowChangesTheAmountAndKeepsTheOriginal() {
-        Transaction transaction = pending(savings, "20", NOW.minusMinutes(9));
-        when(transactionRepo.lockById(transaction.getId())).thenReturn(Optional.of(transaction));
-
-        CollectorPaymentResponse response = service.correct(transaction.getId(),
-                CollectorCorrectionRequest.builder().amount(new BigDecimal("25")).build(), collector);
-
-        assertThat(response.amount()).isEqualByComparingTo("25");
-        ArgumentCaptor<CollectorCorrection> correction = ArgumentCaptor.forClass(CollectorCorrection.class);
-        verify(correctionRepo).save(correction.capture());
-        assertThat(correction.getValue().getRecordType()).isEqualTo(CorrectionRecordType.PAYMENT);
-        assertThat(correction.getValue().getPreviousAmount()).isEqualByComparingTo("20");
-        assertThat(correction.getValue().getNewAmount()).isEqualByComparingTo("25");
-        assertThat(correction.getValue().getCorrectedBy()).isSameAs(collector);
-    }
-
-    // Moving to the member's shares account turns it into a share purchase.
-    @Test
-    void movingToTheSharesAccountMakesItASharePurchase() {
-        Transaction transaction = pending(savings, "20", NOW.minusMinutes(1));
-        when(transactionRepo.lockById(transaction.getId())).thenReturn(Optional.of(transaction));
-        accountExists(shares);
-
-        CollectorPaymentResponse response = service.correct(transaction.getId(),
-                CollectorCorrectionRequest.builder().accountNumber("1000000001").build(), collector);
-
-        assertThat(response.type()).isEqualTo(CollectorPaymentType.SHARES);
-        assertThat(transaction.getMemberAccount()).isSameAs(shares);
-        assertThat(transaction.getTransactionType()).isEqualTo(TransactionType.SHARES);
-    }
-
-    @Test
-    void correctionAfterTenMinutesIsRefused() {
-        Transaction transaction = pending(savings, "20", NOW.minusMinutes(10));
-        when(transactionRepo.lockById(transaction.getId())).thenReturn(Optional.of(transaction));
-
-        assertThatThrownBy(() -> service.correct(transaction.getId(),
-                CollectorCorrectionRequest.builder().amount(new BigDecimal("25")).build(), collector))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("The 10-minute correction window for this payment has closed");
-        verifyNoInteractions(correctionRepo);
-    }
-
-    @Test
-    void cantMoveAPaymentToAnotherMembersAccount() {
-        Transaction transaction = pending(savings, "20", NOW.minusMinutes(1));
-        when(transactionRepo.lockById(transaction.getId())).thenReturn(Optional.of(transaction));
-        accountExists(account(member(tarkwa), "1000000005", AccountType.SAVINGS));
-
-        assertThatThrownBy(() -> service.correct(transaction.getId(),
-                CollectorCorrectionRequest.builder().accountNumber("1000000005").build(), collector))
-                .isInstanceOf(BadRequestException.class);
-    }
-
-    @Test
-    void onlyTheRecordingCollectorCanCorrect() {
-        Transaction transaction = pending(savings, "20", NOW.minusMinutes(1));
-        when(transactionRepo.lockById(transaction.getId())).thenReturn(Optional.of(transaction));
-        Staff other = Staff.builder().id(UUID.randomUUID()).branch(tarkwa).build();
-
-        assertThatThrownBy(() -> service.correct(transaction.getId(),
-                CollectorCorrectionRequest.builder().amount(BigDecimal.ONE).build(), other))
-                .isInstanceOf(ForbiddenException.class);
     }
 
     // --- reads ----------------------------------------------------------------------------

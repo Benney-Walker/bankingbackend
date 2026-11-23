@@ -50,7 +50,7 @@ public interface TransactionRepo extends JpaRepository<Transaction, UUID> {
             """)
     List<Transaction> findUnsubmittedCollectorPayments(@Param("collectorId") UUID collectorId);
 
-    /** A collector's payments still in their 10-minute window, oldest first. */
+    /** A collector's payments still PENDING (saved under the old 10-minute window), oldest first. */
     @Query("""
             select t from Transaction t
             where t.initiatedBy.id = :collectorId and t.channel = com.bynexlabs.bankingbackend.enums.TransactionChannel.COLLECTOR
@@ -64,7 +64,7 @@ public interface TransactionRepo extends JpaRepository<Transaction, UUID> {
     /** Payments named by the location points of a collector's trail. */
     List<Transaction> findByIdempotencyKeyIn(Collection<String> keys);
 
-    /** Collector payments whose correction window closed before the given time, oldest first. */
+    /** PENDING collector payments saved before the given time, oldest first (old 10-minute window). */
     @Query(value = """
             select id from transaction
             where status = 'PENDING' and channel = 'COLLECTOR' and created_at <= :closedBefore

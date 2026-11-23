@@ -15,26 +15,12 @@ import java.time.LocalDateTime;
 public final class CollectorRules {
 
     /**
-     * Owner decision 2026-11-07: a collector can correct a record for 10 minutes after the backend
-     * saves it. The collector app counts the same 10 minutes for offline records, so the two must
-     * stay in step.
+     * How far ahead of the server clock a phone time may be. The app keeps a payment for 5
+     * minutes before sending it (owner decision 2026-11-23), so its times are normally in the past.
      */
-    public static final Duration CORRECTION_WINDOW = Duration.ofMinutes(10);
-
-    /** How far ahead of the server clock an offline record's device time may be. */
     private static final Duration DEVICE_CLOCK_TOLERANCE = Duration.ofMinutes(5);
 
     private CollectorRules() {
-    }
-
-    /** When the window closes, or null for offline records, which arrive final (D40). */
-    public static LocalDateTime correctableUntil(LocalDateTime createdAt, LocalDateTime recordedAt) {
-        return recordedAt != null || createdAt == null ? null : createdAt.plus(CORRECTION_WINDOW);
-    }
-
-    public static boolean windowOpen(LocalDateTime createdAt, LocalDateTime recordedAt, LocalDateTime now) {
-        LocalDateTime until = correctableUntil(createdAt, recordedAt);
-        return until != null && now.isBefore(until);
     }
 
     // Owner decision 2026-11-14: a collector works with any member in their own branch.
@@ -52,9 +38,24 @@ public final class CollectorRules {
         }
     }
 
+    /** A location point's phone time can't be in the future. */
     public static void requireValidRecordedAt(LocalDateTime recordedAt, LocalDateTime now) {
         if (recordedAt != null && recordedAt.isAfter(now.plus(DEVICE_CLOCK_TOLERANCE))) {
             throw new BadRequestException("recordedAt can't be in the future");
+        }
+    }
+
+    /** The phone's createdAt and updatedAt: not in the future, and the edit not before the creation. */
+    public static void requireValidPhoneTimes(LocalDateTime createdAt, LocalDateTime updatedAt, LocalDateTime now) {
+        if (createdAt == null || updatedAt == null) {
+            throw new BadRequestException("createdAt and updatedAt are required");
+        }
+        LocalDateTime latest = now.plus(DEVICE_CLOCK_TOLERANCE);
+        if (createdAt.isAfter(latest) || updatedAt.isAfter(latest)) {
+            throw new BadRequestException("createdAt and updatedAt can't be in the future. Check the phone's date and time");
+        }
+        if (updatedAt.isBefore(createdAt)) {
+            throw new BadRequestException("updatedAt can't be before createdAt");
         }
     }
 }

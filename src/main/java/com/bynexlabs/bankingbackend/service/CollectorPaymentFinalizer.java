@@ -1,7 +1,6 @@
 package com.bynexlabs.bankingbackend.service;
 
 import com.bynexlabs.bankingbackend.Repository.TransactionRepo;
-import com.bynexlabs.bankingbackend.Utility.CollectorRules;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -14,9 +13,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Applies collector payments whose 10-minute correction window has closed (D39). Runs every
- * app.collector.finalize-interval-ms (default one minute), so a payment is applied between 10
- * and about 11 minutes after it was saved.
+ * Clean-up for the old 10-minute window (D39). Since 2026-11-23 collector payments are applied on
+ * arrival and never left PENDING, but payments saved PENDING before that change still need
+ * applying. Runs every app.collector.finalize-interval-ms (default one minute) and applies any
+ * that remain; once there are none it finds nothing to do.
  */
 @Slf4j
 @Component
@@ -35,8 +35,7 @@ public class CollectorPaymentFinalizer {
     @Scheduled(fixedDelayString = "${app.collector.finalize-interval-ms:60000}",
             initialDelayString = "${app.collector.finalize-interval-ms:60000}")
     public void finaliseDuePayments() {
-        LocalDateTime windowClosedBefore = LocalDateTime.now(clock).minus(CollectorRules.CORRECTION_WINDOW);
-        List<UUID> due = transactionRepo.findDuePendingCollectorPayments(windowClosedBefore, BATCH_SIZE);
+        List<UUID> due = transactionRepo.findDuePendingCollectorPayments(LocalDateTime.now(clock), BATCH_SIZE);
         for (UUID id : due) {
             try {
                 applier.finaliseDue(id);

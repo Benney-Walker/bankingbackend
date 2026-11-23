@@ -130,11 +130,10 @@ public class TransactionSmsService {
         return "GHS " + format.format(amount);
     }
 
-    // When the money changed hands: the device time of an offline record, otherwise when it was
-    // recorded (for a collector payment, before the 10-minute window), otherwise when posted.
+    // When the money changed hands: created_at (for a collector payment, the phone's time), otherwise
+    // when posted.
     private static String when(Transaction transaction) {
-        LocalDateTime time = transaction.getRecordedAt() != null ? transaction.getRecordedAt()
-                : transaction.getCreatedAt() != null ? transaction.getCreatedAt() : transaction.getPostedAt();
+        LocalDateTime time = transaction.getCreatedAt() != null ? transaction.getCreatedAt() : transaction.getPostedAt();
         return time.format(WHEN);
     }
 

@@ -22,8 +22,8 @@ import java.time.ZoneId;
 import java.util.UUID;
 
 /**
- * Applies a collector payment once it's final (D39): its 10 minutes have passed, or it was
- * recorded offline. Same steps as an office deposit or share purchase, in one database
+ * Applies a collector payment as soon as it arrives (owner decision 2026-11-23: the app keeps it
+ * for its 5-minute correction window, so it arrives final). Same steps as an office deposit or share purchase, in one database
  * transaction: lock the account, update the balance, post the journal (cash to 1015 Cash with
  * Collectors), mark it COMPLETED and queue the member SMS.
  *
@@ -48,7 +48,10 @@ public class CollectorPaymentApplier {
     /** Replaceable in tests. */
     Clock clock = Clock.system(ZoneId.of("Africa/Accra"));
 
-    /** For the finaliser: each payment in its own transaction, so one failure doesn't stop the rest. */
+    /**
+     * For the finaliser, which applies payments saved PENDING under the old 10-minute window: each
+     * in its own transaction, so one failure doesn't stop the rest.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void finaliseDue(UUID transactionId) {
         transactionRepo.lockPendingCollectorPayment(transactionId).ifPresent(this::apply);

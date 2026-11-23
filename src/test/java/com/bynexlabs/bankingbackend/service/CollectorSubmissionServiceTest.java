@@ -140,16 +140,36 @@ class CollectorSubmissionServiceTest {
         verify(submissionRepo, never()).save(any());
     }
 
+    // Only a payment saved under the old 10-minute window can still be PENDING.
     @Test
-    void cantSubmitWhileAPaymentIsInItsWindow() {
+    void cantSubmitWhileAnOldPendingPaymentIsBeingApplied() {
         Transaction pending = payment("20", TransactionStatus.PENDING);
-        pending.setCreatedAt(NOW.minusMinutes(4));
         when(transactionRepo.findPendingCollectorPayments(collector.getId())).thenReturn(List.of(pending));
 
         assertThatThrownBy(() -> service.submit(collector))
                 .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("You can submit after 17:06");
+                .hasMessage("Some of your payments are still being applied. Try again in a minute");
         verify(submissionRepo, never()).save(any());
+    }
+
+    // Owner decision 2026-11-23: a payment can arrive any time before its day is submitted.
+    @Test
+    void paymentCreatedBeforeTheLatestSubmissionIsRefused() {
+        CollectorSubmission last = CollectorSubmission.builder().id(UUID.randomUUID()).collector(collector)
+                .status(CollectorSubmissionStatus.APPROVED).submittedAt(LocalDateTime.of(2026, 11, 22, 18, 30)).build();
+        when(submissionRepo.findFirstByCollector_IdOrderBySubmittedAtDesc(collector.getId())).thenReturn(Optional.of(last));
+
+        assertThatThrownBy(() -> service.requireCreatedAfterLastSubmission(collector, LocalDateTime.of(2026, 11, 22, 17, 0)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("This payment was recorded before your submission of 22 Nov 2026 18:30 and can't be added to it now. See the office");
+        service.requireCreatedAfterLastSubmission(collector, LocalDateTime.of(2026, 11, 22, 18, 31));
+    }
+
+    @Test
+    void anyPaymentIsAcceptedBeforeTheFirstSubmission() {
+        when(submissionRepo.findFirstByCollector_IdOrderBySubmittedAtDesc(collector.getId())).thenReturn(Optional.empty());
+
+        service.requireCreatedAfterLastSubmission(collector, LocalDateTime.of(2026, 1, 1, 9, 0));
     }
 
     @Test

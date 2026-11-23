@@ -79,11 +79,18 @@ public class Transaction {
     @Column(name = "channel", nullable = false, length = 20)
     private TransactionChannel channel = TransactionChannel.OFFICE;
 
-    /** Device time of a collector payment recorded offline; null otherwise. */
-    @Column(name = "recorded_at")
-    private LocalDateTime recordedAt;
+    /**
+     * When the backend received the record (V45). For a collector payment created_at is the
+     * phone's creation time, so the two differ; for an office transaction they're the same.
+     */
+    @Column(name = "received_at", nullable = false, updatable = false)
+    private LocalDateTime receivedAt;
 
-    /** Why a collector payment couldn't be applied when its window closed (status FAILED). */
+    /** The phone's last-edit time of a collector payment (V45); null for office transactions. */
+    @Column(name = "updated_at", updatable = false)
+    private LocalDateTime updatedAt;
+
+    /** Why a collector payment couldn't be applied on arrival (status FAILED). */
     @Column(name = "failure_reason", columnDefinition = "TEXT")
     private String failureReason;
 

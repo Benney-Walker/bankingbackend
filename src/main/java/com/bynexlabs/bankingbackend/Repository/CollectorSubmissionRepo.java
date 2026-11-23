@@ -26,6 +26,9 @@ public interface CollectorSubmissionRepo extends JpaRepository<CollectorSubmissi
     boolean existsByCollector_IdAndStatusAndSubmittedAtGreaterThanEqualAndSubmittedAtLessThan(
             UUID collectorId, CollectorSubmissionStatus status, LocalDateTime from, LocalDateTime to);
 
+    /** The collector's latest submission, whatever its status. */
+    Optional<CollectorSubmission> findFirstByCollector_IdOrderBySubmittedAtDesc(UUID collectorId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from CollectorSubmission s where s.id = :id")
     Optional<CollectorSubmission> lockById(@Param("id") UUID id);

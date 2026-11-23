@@ -120,6 +120,9 @@ Access is set by URL in `SecurityConfig`:
 | GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
 | POST | `/api/collector/v1/locations` | Collector: location points `{ "points": [{ latitude, longitude, accuracyMeters, batteryPercent?, trigger: EVERY_5_MIN \| PAYMENT, paymentIdempotencyKey (PAYMENT only), recordedAt }] }`, up to 500 a call; re-sent points stored once. Returns `{ stored, duplicates }` |
 | GET | `/api/transaction/v1/collector-locations/{collectorStaffId}?date=` | A collector's points for a day (default today) in time order, with each PAYMENT point's payment (type, amount, status, member name, account number). Agents: own branch's collectors (403 otherwise); administrators all |
+| GET | `/api/transaction/v1/collector-shortages` | Collectors who still owe a shortage, largest first: total shortage, repaid, outstanding. Agents: own branch; administrators: all |
+| GET | `/api/transaction/v1/collector-shortages/{collectorStaffId}` | What one collector owes, with their repayments |
+| POST | `/api/transaction/v1/collector-shortages/{collectorStaffId}/repayments` | Body `{ amount, idempotencyKey, note? }`: cash the collector paid back, at most what's owed (409). Posts 1010 debit, 1015 credit. The branch's agent or an administrator (main office) |
 | POST | `/api/collector/v1/submissions` | Collector: close the day and submit every payment not yet handed in. See "Daily submission" |
 | GET | `/api/collector/v1/submissions?page=0&size=20` | Collector: their submissions and outcomes, newest first |
 | GET | `/api/transaction/v1/collector-submissions?status=SUBMITTED&page=0&size=20` | Collector submissions by status (`SUBMITTED`, `APPROVED`). Agents: their branch's collectors only; administrators: every branch |
@@ -242,6 +245,7 @@ Owner decisions 2026-11-15:
 2. **No more recording.** From then on, new payments (including offline ones) → 409 until the submission is approved. Retries of payments already saved still return them.
 3. **Approval.** The agent of the collector's branch (403 for another branch) or an administrator counts the cash and approves with `countedAmount`. A handover transaction (`COLLECTOR_HANDOVER`, no member account) posts: debit **1010 Cash on Hand** with the cash counted, credit **1015 Cash with Collectors** with up to the expected amount, and credit **2030 Cash Overages (Suspense)** with any surplus. A **shortage stays in 1015** (still owed by the collector) and is recorded on the submission as `shortageAmount`. Counting 0 posts nothing. An approved submission is final (database trigger); approving again with the same amount returns it, a different amount → 409.
 4. **Sign-out.** Approval ends all the collector's sessions at once, and `collector-login` is refused (403) for the rest of the day the submission was made.
+5. **Shortage repayment** (owner decisions 2026-11-23). The collector pays a shortage back at their branch (the agent records it) or at the main office (an administrator records it): `POST /api/transaction/v1/collector-shortages/{collectorStaffId}/repayments`. Part payments are allowed up to what's owed; each moves the cash from 1015 to 1010. An unpaid shortage doesn't stop the collector working, and no SMS is sent.
 
 
 ## Financial settings
@@ -356,6 +360,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V40 | `member_update_request`: proposed member updates (one waiting per member, reason required to reject, final once reviewed) |
 | V41 | `collector_location`: location points (position, accuracy, battery, trigger, phone and server time), one row per collector, phone time and trigger |
 | V42 | One phone per collector: `staffs.registered_device_id` and `device_registered_at`, `refresh_token.device_id`, revoke reason `DEVICE_RELEASED` |
+| V43 | `collector_shortage_repayment` (final once saved) and `COLLECTOR_SHORTAGE_REPAYMENT` posting rules (1010 debit, 1015 credit) |
 
 ## Status
 

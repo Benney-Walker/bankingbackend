@@ -5,6 +5,7 @@ import com.bynexlabs.bankingbackend.DTO.member.KycRejectionRequest;
 import com.bynexlabs.bankingbackend.DTO.member.MemberDetails;
 import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateProposalResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
@@ -12,6 +13,7 @@ import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.service.KycService;
 import com.bynexlabs.bankingbackend.service.MemberService;
+import com.bynexlabs.bankingbackend.service.MemberUpdateProposalService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.web.PagedModel;
@@ -36,6 +38,8 @@ public class MemberController {
 
     private final AuthenticatedStaffProvider staffProvider;
 
+    private final MemberUpdateProposalService memberUpdateProposalService;
+
     /**
      * Search members of every branch by part of a name, part of a phone number, or an exact
      * account number. For another branch's member an agent doesn't see the phone number.
@@ -59,6 +63,23 @@ public class MemberController {
                                                          @RequestParam(defaultValue = "20") int size) {
         return memberService.listMembers(status, branchId, page, size, staffProvider.getStaff(),
                 staffProvider.hasRole(Roles.ADMINISTRATOR));
+    }
+
+    /**
+     * Propose a new phone number, address and occupation for a member of any branch; an
+     * administrator approves or rejects it. One waiting proposal per member (409).
+     */
+    @PostMapping("/v1/update-requests/{memberId}")
+    public MemberUpdateProposalResponse proposeMemberUpdate(@PathVariable UUID memberId,
+                                                            @Valid @RequestBody MemberUpdateRequest request) {
+        return memberUpdateProposalService.propose(memberId, request, staffProvider.getStaff());
+    }
+
+    /** The signed-in staff member's own proposals and their outcome (rejection reason included). */
+    @GetMapping("/v1/update-requests/mine")
+    public PagedModel<MemberUpdateProposalResponse> myMemberUpdates(@RequestParam(defaultValue = "0") int page,
+                                                                   @RequestParam(defaultValue = "20") int size) {
+        return memberUpdateProposalService.mine(staffProvider.getStaff(), page, size);
     }
 
     @GetMapping("/v1/member-details/{memberId}")

@@ -97,7 +97,12 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/member/v1/add-member` | Register a member (status `PENDING`) and queue creation of a shares account plus the selected `SAVINGS` or `CURRENT` account, both inactive with zero balance |
 | POST | `/api/member/v1/kyc-document-upload` | Multipart: `memberId`, `documentType` (`ECOWAS_CARD`, `VOTER_CARD`), `idNumber` (unique; Ghana Card format `GHA-123456789-0`), `file` (**JPEG or PNG, at most 5 MB**). Creates a `PENDING` KYC record and queues automated verification. One KYC record per member; after a manual rejection only the staff member who registered the member may upload a replacement |
 | GET | `/api/member/v1/kyc-document/{memberId}` | The document image, streamed from the private bucket (`Cache-Control: no-store`); each view is logged |
-| PUT | `/api/admin/v1/update-member/{memberId}` | Body `{ "phoneNumber", "residentialAddress", "occupation" }`, the only member fields that can change after registration |
+| PUT | `/api/admin/v1/update-member/{memberId}` | Body `{ "phoneNumber", "residentialAddress", "occupation" }`, the only member fields that can change after registration. Administrators still update directly |
+| GET | `/api/admin/v1/member-update-requests?status=PENDING&page=0&size=20` | Proposed member updates by status, newest first, with the member's current and proposed values |
+| POST | `/api/admin/v1/member-update-requests/{requestId}/approve` | Applies the change (same checks as the direct update) and texts the member. Your own proposal → 403; already reviewed → 409 |
+| POST | `/api/admin/v1/member-update-requests/{requestId}/reject` | Body `{ "reason" }` (required). Your own proposal → 403 |
+| POST | `/api/member/v1/update-requests/{memberId}` | ADMINISTRATOR or AGENT: propose new `phoneNumber`, `residentialAddress`, `occupation` for a member of any branch. Nothing changes until approved. No change → 400; phone of another member or a proposal already waiting for this member → 409 |
+| GET | `/api/member/v1/update-requests/mine?page=0&size=20` | The signed-in staff member's proposals with status and rejection reason |
 | GET | `/api/admin/v1/kyc-reviews?status=MANUAL_REVIEW&page=0&size=20` | KYC records with the given status, oldest first |
 | GET | `/api/admin/v1/kyc-details/{memberId}` | One member's KYC record |
 | POST | `/api/admin/v1/manual-kyc-approval/{memberId}` | Mark KYC verified and activate the member and their accounts |
@@ -180,7 +185,7 @@ Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` wit
 
 ## RabbitMQ messaging
 
-- Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue`, `kyc_verification_queue` `transaction_sms_queue` (member SMS after each transaction) and `staff_sms_queue` (new-staff welcome SMS); new queues are simply created on start-up.
+- Exchange `cash_client_ecosystem` with the queues `default_share_account_queue`, `other_account_creation_queue`, `kyc_verification_queue` `transaction_sms_queue` (member SMS after each transaction) `staff_sms_queue` (new-staff welcome SMS) and `member_sms_queue` (member notices such as an approved details change); new queues are simply created on start-up.
 - **Retries and dead letters:** a message whose listener throws gets 3 retries (1 s, 2 s, 4 s). After that it's rejected and moved to its dead-letter queue (`default_share_account_dead_letter_queue`, `other_account_creation_dead_letter_queue`, `kyc_verification_dead_letter_queue` or `transaction_sms_dead_letter_queue`) through the exchange `cash_client_ecosystem_dead_letter`, keeping its original routing key. Failed messages never loop forever. Inspect dead-letter queues in the RabbitMQ management UI.
 - **Duplicates:** messages come from the outbox and carry its ID as the AMQP message ID. The account-creation consumers record that ID in `processed_messages` in the same transaction as the account, and skip a message they've already handled. The KYC consumer only acts on `PENDING` records, so a repeat is a no-op. The SMS consumer can't put an SMS in a database transaction, so it checks `processed_messages`, sends, then records the ID; a crash in between can send one SMS twice.
 
@@ -332,6 +337,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V37 | Collector recording: `transaction.channel`, `recorded_at`, `failure_reason`; `withdrawal_request`; append-only `collector_correction`; posting rules for collector deposits and share purchases (cash to 1015) |
 | V38 | Removes withdrawal requests: drops `withdrawal_request` and its corrections; `collector_correction.record_type` is `PAYMENT` only |
 | V39 | Sessions: `refresh_token` (hashed, rotating) and `staffs.sessions_valid_after`. Collector daily submissions: `collector_submission` (one open per collector, final once approved), `transaction.collector_submission_id`, GL **2030 Cash Overages (Suspense)** and `COLLECTOR_HANDOVER` posting rules (amount parts `SETTLED`, `OVERAGE`) |
+| V40 | `member_update_request`: proposed member updates (one waiting per member, reason required to reject, final once reviewed) |
 
 ## Status
 

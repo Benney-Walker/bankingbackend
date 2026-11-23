@@ -27,12 +27,14 @@ public class RabbitMQConfig {
     // Member SMS after every transaction (owner decision 2026-11-14).
     public static final String TRANSACTION_SMS_QUEUE_NAME = "transaction_sms_queue";
     public static final String STAFF_SMS_QUEUE_NAME = "staff_sms_queue";
+    public static final String MEMBER_SMS_QUEUE_NAME = "member_sms_queue";
 
     public static final String DEFAULT_SHARES_ACCOUNT_DEAD_LETTER_QUEUE_NAME = "default_share_account_dead_letter_queue";
     public static final String OTHER_ACCOUNT_CREATION_DEAD_LETTER_QUEUE_NAME = "other_account_creation_dead_letter_queue";
     public static final String KYC_VERIFICATION_DEAD_LETTER_QUEUE_NAME = "kyc_verification_dead_letter_queue";
     public static final String TRANSACTION_SMS_DEAD_LETTER_QUEUE_NAME = "transaction_sms_dead_letter_queue";
     public static final String STAFF_SMS_DEAD_LETTER_QUEUE_NAME = "staff_sms_dead_letter_queue";
+    public static final String MEMBER_SMS_DEAD_LETTER_QUEUE_NAME = "member_sms_dead_letter_queue";
 
     /************************************************
      ROUTING
@@ -42,6 +44,7 @@ public class RabbitMQConfig {
     public static final String KYC_VERIFICATION_ROUTING_KEY = "kyc_verification_routing_key";
     public static final String TRANSACTION_SMS_ROUTING_KEY = "transaction_sms_routing_key";
     public static final String STAFF_SMS_ROUTING_KEY = "staff_sms_routing_key";
+    public static final String MEMBER_SMS_ROUTING_KEY = "member_sms_routing_key";
 
 
     /************************************************
@@ -86,6 +89,14 @@ public class RabbitMQConfig {
                 .build();
     }
 
+    // Member notifications that aren't about a transaction (owner decision 2026-11-23).
+    @Bean
+    public Queue memberSmsQueue() {
+        return QueueBuilder.durable(MEMBER_SMS_QUEUE_NAME)
+                .deadLetterExchange(DEAD_LETTER_EXCHANGE_NAME)
+                .build();
+    }
+
     @Bean
     public Queue defaultShareAccountDeadLetterQueue() {
         return QueueBuilder.durable(DEFAULT_SHARES_ACCOUNT_DEAD_LETTER_QUEUE_NAME).build();
@@ -109,6 +120,11 @@ public class RabbitMQConfig {
     @Bean
     public Queue staffSmsDeadLetterQueue() {
         return QueueBuilder.durable(STAFF_SMS_DEAD_LETTER_QUEUE_NAME).build();
+    }
+
+    @Bean
+    public Queue memberSmsDeadLetterQueue() {
+        return QueueBuilder.durable(MEMBER_SMS_DEAD_LETTER_QUEUE_NAME).build();
     }
 
     /************************************************
@@ -137,6 +153,11 @@ public class RabbitMQConfig {
     @Bean
     public Binding staffSmsBinding(Queue staffSmsQueue, TopicExchange exchange) {
         return BindingBuilder.bind(staffSmsQueue).to(exchange).with(STAFF_SMS_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding memberSmsBinding(Queue memberSmsQueue, TopicExchange exchange) {
+        return BindingBuilder.bind(memberSmsQueue).to(exchange).with(MEMBER_SMS_ROUTING_KEY);
     }
 
     // Dead-lettered messages keep their original routing key, so each dead-letter queue is
@@ -169,6 +190,12 @@ public class RabbitMQConfig {
     public Binding staffSmsDeadLetterBinding() {
         return BindingBuilder.bind(staffSmsDeadLetterQueue()).to(deadLetterExchange())
                 .with(STAFF_SMS_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding memberSmsDeadLetterBinding() {
+        return BindingBuilder.bind(memberSmsDeadLetterQueue()).to(deadLetterExchange())
+                .with(MEMBER_SMS_ROUTING_KEY);
     }
 
     /************************************************

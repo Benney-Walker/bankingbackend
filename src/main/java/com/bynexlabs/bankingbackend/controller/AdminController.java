@@ -3,12 +3,15 @@ package com.bynexlabs.bankingbackend.controller;
 import com.bynexlabs.bankingbackend.DTO.member.KycRecordResponse;
 import com.bynexlabs.bankingbackend.DTO.member.KycRejectionRequest;
 import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
+import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateProposalResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
+import com.bynexlabs.bankingbackend.enums.MemberUpdateStatus;
 import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.service.KycService;
 import com.bynexlabs.bankingbackend.service.MemberService;
+import com.bynexlabs.bankingbackend.service.MemberUpdateProposalService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.web.PagedModel;
@@ -27,6 +30,29 @@ public class AdminController {
     private final AuthenticatedStaffProvider staffProvider;
 
     private final KycService kycService;
+
+    private final MemberUpdateProposalService memberUpdateProposalService;
+
+    /** Proposed member updates by status (default PENDING), newest first. */
+    @GetMapping("/v1/member-update-requests")
+    public PagedModel<MemberUpdateProposalResponse> listMemberUpdates(@RequestParam(required = false) MemberUpdateStatus status,
+                                                                      @RequestParam(defaultValue = "0") int page,
+                                                                      @RequestParam(defaultValue = "20") int size) {
+        return memberUpdateProposalService.list(status, page, size);
+    }
+
+    /** Applies the proposed change and texts the member. Not for your own proposal (403). */
+    @PostMapping("/v1/member-update-requests/{requestId}/approve")
+    public MemberUpdateProposalResponse approveMemberUpdate(@PathVariable UUID requestId) {
+        return memberUpdateProposalService.approve(requestId, staffProvider.getStaff());
+    }
+
+    /** Rejects with a reason the proposer sees. Not for your own proposal (403). */
+    @PostMapping("/v1/member-update-requests/{requestId}/reject")
+    public MemberUpdateProposalResponse rejectMemberUpdate(@PathVariable UUID requestId,
+                                                           @Valid @RequestBody KycRejectionRequest request) {
+        return memberUpdateProposalService.reject(requestId, request.getReason(), staffProvider.getStaff());
+    }
 
     @PutMapping("/v1/update-member/{memberId}")
     public MemberProfileResponse updateMember(@PathVariable UUID memberId,

@@ -7,6 +7,7 @@ import com.bynexlabs.bankingbackend.DTO.member.MemberProfileResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberSummaryResponse;
 import com.bynexlabs.bankingbackend.DTO.member.MemberUpdateRequest;
 import com.bynexlabs.bankingbackend.Utility.AuthenticatedStaffProvider;
+import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.service.KycService;
@@ -44,6 +45,19 @@ public class MemberController {
                                                            @RequestParam(defaultValue = "0") int page,
                                                            @RequestParam(defaultValue = "20") int size) {
         return memberService.searchMembers(query, page, size, staffProvider.getStaff(),
+                staffProvider.hasRole(Roles.ADMINISTRATOR));
+    }
+
+    /**
+     * Members, newest first. Administrators: every branch, or one with branchId. Agents: their
+     * own branch only (another branchId is 403). Optional status filter.
+     */
+    @GetMapping("/v1/members")
+    public PagedModel<MemberSummaryResponse> listMembers(@RequestParam(required = false) MembershipStatus status,
+                                                         @RequestParam(required = false) UUID branchId,
+                                                         @RequestParam(defaultValue = "0") int page,
+                                                         @RequestParam(defaultValue = "20") int size) {
+        return memberService.listMembers(status, branchId, page, size, staffProvider.getStaff(),
                 staffProvider.hasRole(Roles.ADMINISTRATOR));
     }
 

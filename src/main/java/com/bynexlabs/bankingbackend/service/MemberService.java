@@ -9,6 +9,7 @@ import com.bynexlabs.bankingbackend.DTO.rabbitMQ.SharesAccountEvent;
 import com.bynexlabs.bankingbackend.Repository.MemberAccountRepo;
 import com.bynexlabs.bankingbackend.Repository.MemberRepository;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
+import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
 import com.bynexlabs.bankingbackend.Utility.PhoneNumberRules;
 import com.bynexlabs.bankingbackend.exception.ResourceNotFoundException;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
@@ -127,19 +129,58 @@ public class MemberService {
         if (query == null || query.isBlank()) {
             throw new BadRequestException("Enter a name, phone number or account number to search");
         }
-        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
-            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
-        }
         Page<Member> members = memberRepository.search(query.trim(),
-                PageRequest.of(page, size, Sort.by("lastName", "firstName")));
+                pageRequest(page, size, Sort.by("lastName", "firstName")));
+        UUID viewerBranchId = viewer.getBranch() == null ? null : viewer.getBranch().getId();
+        return summaries(members, member -> viewerIsAdmin || (viewerBranchId != null && member.getBranch() != null
+                && viewerBranchId.equals(member.getBranch().getId())));
+    }
+
+    /**
+     * The member list (owner decisions 2026-11-23, increment #4): administrators see every
+     * branch and may narrow to one; agents see only their own branch (asking for another branch
+     * is 403). Optional membership-status filter; newest registrations first. Rows are the same as
+     * search rows, phone included, since every row is visible to the viewer's branch or an admin.
+     */
+    @Transactional(readOnly = true)
+    public PagedModel<MemberSummaryResponse> listMembers(MembershipStatus status, UUID branchId, int page, int size,
+                                                         Staff viewer, boolean viewerIsAdmin) {
+        UUID branch = branchId;
+        if (!viewerIsAdmin) {
+            if (viewer.getBranch() == null) {
+                throw new ForbiddenException("You are not assigned to a branch");
+            }
+            if (branchId != null && !branchId.equals(viewer.getBranch().getId())) {
+                throw new ForbiddenException("You can only list members of your own branch");
+            }
+            branch = viewer.getBranch().getId();
+        }
+        PageRequest pageRequest = pageRequest(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Member> members;
+        if (branch == null) {
+            members = status == null ? memberRepository.findAll(pageRequest)
+                    : memberRepository.findByMembershipStatus(status, pageRequest);
+        } else {
+            members = status == null ? memberRepository.findByBranch_Id(branch, pageRequest)
+                    : memberRepository.findByBranch_IdAndMembershipStatus(branch, status, pageRequest);
+        }
+        return summaries(members, member -> true);
+    }
+
+    // Search and list rows, with each page's accounts loaded in one query.
+    private PagedModel<MemberSummaryResponse> summaries(Page<Member> members, Predicate<Member> showPhone) {
         Map<UUID, List<MemberAccount>> accounts = members.isEmpty() ? Map.of()
                 : memberAccountRepo.findByMember_IdIn(members.map(Member::getId).toList()).stream()
                     .collect(Collectors.groupingBy(account -> account.getMember().getId()));
-        UUID viewerBranchId = viewer.getBranch() == null ? null : viewer.getBranch().getId();
         return new PagedModel<>(members.map(member -> MemberSummaryResponse.from(member,
-                accounts.getOrDefault(member.getId(), List.of()),
-                viewerIsAdmin || (viewerBranchId != null && member.getBranch() != null
-                        && viewerBranchId.equals(member.getBranch().getId())))));
+                accounts.getOrDefault(member.getId(), List.of()), showPhone.test(member))));
+    }
+
+    private static PageRequest pageRequest(int page, int size, Sort sort) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
+        }
+        return PageRequest.of(page, size, sort);
     }
 
     @Transactional(readOnly = true)

@@ -1,5 +1,6 @@
 package com.bynexlabs.bankingbackend.Repository;
 
+import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Member;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +18,13 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     boolean existsByPhoneNumber(String phoneNumber);
 
     boolean existsByPhoneNumberAndIdNot(String phoneNumber, UUID id);
+
+    // Member list (increment #4): by branch and/or membership status.
+    Page<Member> findByMembershipStatus(MembershipStatus status, Pageable pageable);
+
+    Page<Member> findByBranch_Id(UUID branchId, Pageable pageable);
+
+    Page<Member> findByBranch_IdAndMembershipStatus(UUID branchId, MembershipStatus status, Pageable pageable);
 
     // Free-text member search: part of a first, middle, last or full name (case-insensitive),
     // part of a phone number, or an exact account number.

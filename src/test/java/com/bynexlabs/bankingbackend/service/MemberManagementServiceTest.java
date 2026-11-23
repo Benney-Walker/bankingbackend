@@ -1,5 +1,8 @@
 package com.bynexlabs.bankingbackend.service;
 
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.PageRequest;
+import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageImpl;
 import com.bynexlabs.bankingbackend.models.Staff;
@@ -250,5 +253,56 @@ class MemberManagementServiceTest {
     void pageSizeIsCapped() {
         assertThatThrownBy(() -> memberService.searchMembers("ama", 0, 101, staffAt(tarkwa), false))
                 .isInstanceOf(BadRequestException.class);
+    }
+
+    // --- member list (owner decisions 2026-11-23, increment #4) -----------------------------
+
+    private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt");
+
+    @Test
+    void agentListsOnlyTheirOwnBranchNewestFirstWithPhones() {
+        Member member = memberAt(tarkwa);
+        when(memberRepository.findByBranch_Id(tarkwa.getId(), PageRequest.of(0, 20, NEWEST_FIRST)))
+                .thenReturn(new PageImpl<>(List.of(member)));
+
+        MemberSummaryResponse row = memberService.listMembers(null, null, 0, 20, staffAt(tarkwa), false)
+                .getContent().get(0);
+
+        assertThat(row.getPhoneNumber()).isEqualTo("0241234567");
+        verify(memberRepository, never()).findAll(any(Pageable.class));
+    }
+
+    @Test
+    void agentCantListAnotherBranch() {
+        assertThatThrownBy(() -> memberService.listMembers(null, takoradi.getId(), 0, 20, staffAt(tarkwa), false))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("You can only list members of your own branch");
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void agentFiltersTheirBranchByStatus() {
+        when(memberRepository.findByBranch_IdAndMembershipStatus(tarkwa.getId(), MembershipStatus.PENDING,
+                PageRequest.of(0, 20, NEWEST_FIRST))).thenReturn(new PageImpl<>(List.of()));
+
+        memberService.listMembers(MembershipStatus.PENDING, tarkwa.getId(), 0, 20, staffAt(tarkwa), false);
+    }
+
+    @Test
+    void administratorListsEveryBranch() {
+        when(memberRepository.findAll(PageRequest.of(0, 20, NEWEST_FIRST))).thenReturn(new PageImpl<>(List.of(memberAt(tarkwa))));
+
+        assertThat(memberService.listMembers(null, null, 0, 20, staffAt(takoradi), true).getContent()).hasSize(1);
+    }
+
+    @Test
+    void administratorNarrowsToOneBranchAndStatus() {
+        when(memberRepository.findByMembershipStatus(MembershipStatus.ACTIVE, PageRequest.of(1, 50, NEWEST_FIRST)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(memberRepository.findByBranch_Id(tarkwa.getId(), PageRequest.of(0, 20, NEWEST_FIRST)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        memberService.listMembers(MembershipStatus.ACTIVE, null, 1, 50, staffAt(takoradi), true);
+        memberService.listMembers(null, tarkwa.getId(), 0, 20, staffAt(takoradi), true);
     }
 }

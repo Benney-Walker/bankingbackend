@@ -48,7 +48,8 @@ import java.util.UUID;
  *    the expected cash, FAILED ones are counted separately. From then on they can't record.
  * 2. The agent of the collector's branch, or an administrator, counts the cash and approves with
  *    the amount counted. The counted cash moves from 1015 Cash with Collectors to 1010 Cash on
- *    Hand; a shortage stays in 1015, a surplus goes to 2030 Cash Overages (Suspense).
+ *    Hand; a surplus goes to 2030 Cash Overages (Suspense). No shortage is allowed (owner
+ *    decision 2026-11-23): a count below the expected cash is refused and the day stays waiting.
  * 3. Approval signs the collector out everywhere, and they can't sign in again until the next
  *    day (Africa/Accra).
  */
@@ -208,13 +209,20 @@ public class CollectorSubmissionService {
                     + MoneyMovementService.ghs(submission.getCountedAmount()) + " counted");
         }
 
-        LocalDateTime now = LocalDateTime.now(clock);
+        // Owner decision 2026-11-23: no shortage is allowed. The collector must hand in at least
+        // the expected cash before the day can be approved; the submission stays waiting.
         BigDecimal expected = submission.getExpectedAmount();
-        BigDecimal overage = counted.subtract(expected).max(BigDecimal.ZERO);
-        BigDecimal shortage = expected.subtract(counted).max(BigDecimal.ZERO);
+        if (counted.compareTo(expected) < 0) {
+            throw new ConflictException("The cash counted is GHS " + MoneyMovementService.ghs(expected.subtract(counted))
+                    + " short of the expected GHS " + MoneyMovementService.ghs(expected)
+                    + ". The collector must hand in the full amount before this can be approved");
+        }
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        BigDecimal overage = counted.subtract(expected);
         Staff approverRef = staffRepo.getReferenceById(approver.getId());
 
-        // Nothing to post when no cash was handed in: the whole expected amount stays in 1015.
+        // Nothing to post on a day with nothing expected and nothing handed in.
         if (counted.signum() > 0) {
             Transaction handover = transactionService.record(Transaction.builder()
                     .idempotencyKey("collector-handover-" + submission.getId())
@@ -236,7 +244,7 @@ public class CollectorSubmissionService {
 
         submission.setStatus(CollectorSubmissionStatus.APPROVED);
         submission.setCountedAmount(counted);
-        submission.setShortageAmount(shortage);
+        submission.setShortageAmount(BigDecimal.ZERO);
         submission.setOverageAmount(overage);
         submission.setApprovedBy(approverRef);
         submission.setApprovedAt(now);

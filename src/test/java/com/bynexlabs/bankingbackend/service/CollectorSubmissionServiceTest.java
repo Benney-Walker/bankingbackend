@@ -196,7 +196,6 @@ class CollectorSubmissionServiceTest {
         CollectorSubmissionResponse response = service.approve(submission.getId(), new BigDecimal("50"), agent, false);
 
         assertThat(response.status()).isEqualTo(CollectorSubmissionStatus.APPROVED);
-        assertThat(response.shortageAmount()).isEqualByComparingTo("0");
         assertThat(response.overageAmount()).isEqualByComparingTo("0");
         assertThat(response.approvedByStaffId()).isEqualTo("900105");
         PostingService.Posting posting = posted();
@@ -212,19 +211,17 @@ class CollectorSubmissionServiceTest {
         verify(sessionService).endAllSessions(collector.getId(), SessionEndReason.DAILY_APPROVAL);
     }
 
-    // Owner decision 2026-11-15: a shortage stays in 1015 (only the counted cash moves).
+    // Owner decision 2026-11-23: no shortage is allowed; the day stays waiting until the full cash is in.
     @Test
-    void shortageStaysWithTheCollector() {
+    void countBelowTheExpectedCashIsRefused() {
         CollectorSubmission submission = submitted("50");
-        approverIs(agent);
 
-        CollectorSubmissionResponse response = service.approve(submission.getId(), new BigDecimal("45"), agent, false);
-
-        assertThat(response.shortageAmount()).isEqualByComparingTo("5");
-        PostingService.Posting posting = posted();
-        assertThat(posting.amounts().get(AmountPart.PRINCIPAL)).isEqualByComparingTo("45");
-        assertThat(posting.amounts().get(AmountPart.SETTLED)).isEqualByComparingTo("45");
-        assertThat(posting.amounts().get(AmountPart.OVERAGE)).isEqualByComparingTo("0");
+        assertThatThrownBy(() -> service.approve(submission.getId(), new BigDecimal("45"), agent, false))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("The cash counted is GHS 5.00 short of the expected GHS 50.00. "
+                        + "The collector must hand in the full amount before this can be approved");
+        assertThat(submission.getStatus()).isEqualTo(CollectorSubmissionStatus.SUBMITTED);
+        verifyNoInteractions(postingService, transactionService, sessionService);
     }
 
     @Test
@@ -242,13 +239,23 @@ class CollectorSubmissionServiceTest {
     }
 
     @Test
-    void nothingCountedPostsNothingButStillApproves() {
+    void nothingCountedIsRefusedWhenCashIsExpected() {
         CollectorSubmission submission = submitted("50");
+
+        assertThatThrownBy(() -> service.approve(submission.getId(), BigDecimal.ZERO, agent, false))
+                .isInstanceOf(ConflictException.class);
+        verifyNoInteractions(postingService, sessionService);
+    }
+
+    // A day with no payments: nothing expected, nothing counted, nothing posted.
+    @Test
+    void emptyDayApprovesWithNothingPosted() {
+        CollectorSubmission submission = submitted("0");
         approverIs(agent);
 
         CollectorSubmissionResponse response = service.approve(submission.getId(), BigDecimal.ZERO, agent, false);
 
-        assertThat(response.shortageAmount()).isEqualByComparingTo("50");
+        assertThat(response.status()).isEqualTo(CollectorSubmissionStatus.APPROVED);
         verifyNoInteractions(postingService, transactionService);
         verify(sessionService).endAllSessions(collector.getId(), SessionEndReason.DAILY_APPROVAL);
     }

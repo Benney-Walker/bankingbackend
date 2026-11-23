@@ -9,6 +9,9 @@ public enum TransactionType {
     SHARES,
     /** Cash a collector hands in at the office when their daily submission is approved (V39). No member account. */
     COLLECTOR_HANDOVER,
-    /** A collector paying back a recorded shortage at the office (V43). No member account. */
+    /**
+     * Retired 2026-11-23 (shortages are no longer allowed, V44). Kept only so any repayment
+     * recorded while the feature existed still loads; nothing creates it.
+     */
     COLLECTOR_SHORTAGE_REPAYMENT
 }

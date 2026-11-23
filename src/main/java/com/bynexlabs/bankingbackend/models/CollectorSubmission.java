@@ -25,7 +25,8 @@ import java.util.UUID;
  * A collector's daily cash submission (V39, owner decisions 2026-11-15). The collector submits
  * to close the day; it covers every payment not yet submitted. COMPLETED payments make up the
  * expected cash; FAILED ones are counted separately for the approver. Approval records the cash
- * counted and any shortage or surplus, and is final.
+ * counted and any surplus, and is final. Shortages are refused since 2026-11-23, so
+ * {@code shortageAmount} stays 0 (the column is kept for earlier rows).
  */
 @Entity
 @Table(name = "collector_submission")

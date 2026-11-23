@@ -47,8 +47,8 @@ public class CollectorSubmissionController {
     }
 
     /**
-     * Approves with the cash counted. Moves it to Cash on Hand, records any shortage or surplus,
-     * and signs the collector out until tomorrow.
+     * Approves with the cash counted. Moves it to Cash on Hand, records any surplus, and signs
+     * the collector out until tomorrow. Less than the expected cash is refused (409).
      */
     @PostMapping("/{submissionId}/approve")
     public CollectorSubmissionResponse approve(@PathVariable UUID submissionId,

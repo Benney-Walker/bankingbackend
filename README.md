@@ -278,6 +278,7 @@ Administrators and agents record money movements at the office through `/api/tra
 - Accounts and their members must be `ACTIVE` (after KYC) → otherwise 409.
 - **Deposit:** savings or current accounts only. A member's **first deposit** must be at least `minFirstDeposit` (400 otherwise); `initialShareAmount` of it goes to their shares account and the rest to the chosen account. It's one transaction with `shareAmount` and `counterpartyAccountNumber` (the shares account).
 - **Share purchase:** into the shares account, only after the first deposit (409).
+- **Shares stay in (owner decisions 2026-11-23, D19):** shares are a GHS balance (no units or price). They can't be redeemed or transferred to another member: withdrawals and transfers refuse a shares account (400). No dividends yet.
 - **Withdrawal:** savings or current only. The fee from the settings is taken **on top** (withdraw 100 with a fee of 2 → account goes down 102). The account must keep `withdrawalMinBalance` after amount and fee, and the amounts withdrawn from one account in a day (Africa/Accra) can't exceed `withdrawalDailyLimit` (fees don't count). Both → 409 with how much can still be withdrawn.
 - **Transfer:** between savings/current accounts of the same member or two members; no fee; the source keeps `withdrawalMinBalance`; the receiving member must have made their first deposit (409). Shares can't be transferred.
 - Recorded transactions are final (no reversals). Current and available balance move together for now.

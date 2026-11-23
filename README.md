@@ -75,7 +75,7 @@ Access is set by URL in `SecurityConfig`:
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/auth/v1/staff-login` | Desktop login with `staffId` and `password`; returns `staffName`, `roles`, `authToken`, `refreshToken`. Collector accounts → 403 |
-| POST | `/api/auth/v1/collector-login` | Collector app login, same response; body adds `deviceId` (the app's install ID, required). Only COLLECTOR accounts (others → 403). The first sign-in registers the phone; another phone → 403 until it's released. See "Collectors" |
+| POST | `/api/auth/v1/collector-login` | Collector app login, same response; body adds `deviceId` (the phone's device ID, required). Only COLLECTOR accounts (others → 403). The first sign-in registers the phone; another phone → 403 until it's released. See "Collectors" |
 | POST | `/api/auth/v1/refresh-staff-token` | Body `{ "refreshToken" }`; returns `{ "authToken", "refreshToken" }`. The old refresh token stops working: store the new one. Collector, inactive or unknown accounts, or an ended session → 401. See "Sessions" |
 | POST | `/api/auth/v1/refresh-collector-token` | The same for collectors, with `deviceId` in the body; a different or missing `deviceId`, or a non-collector, inactive or unknown account → 401 |
 | POST | `/api/auth/v1/logout` | Body `{ "refreshToken" }`. Signs out this device (both apps): the session's refresh tokens stop working and its access tokens are refused at once. Always 204 |
@@ -223,7 +223,7 @@ Collectors take two kinds of payment in the field (owner decisions 2026-11-07 an
 
 ### One phone per collector (owner decisions 2026-11-23)
 
-- The app makes a random install ID once and sends it as `deviceId` at `collector-login` and `refresh-collector-token`. Reinstalling the app counts as a new phone.
+- The app reads the phone's own device ID and sends it as `deviceId` at `collector-login` and `refresh-collector-token` (owner decision 2026-11-23, replacing an app install ID). The backend stores it as given and compares it exactly.
 - The first sign-in registers the phone. Signing in on another phone → 403 until the branch's agent or an administrator releases it (`POST /api/staff/v1/collectors/{staffId}/release-device`), which also signs the collector out everywhere.
 - Each collector session is bound to its phone: its refresh token works only with the same `deviceId`.
 

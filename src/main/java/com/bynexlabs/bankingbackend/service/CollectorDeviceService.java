@@ -20,7 +20,8 @@ import java.time.ZoneId;
 
 /**
  * One phone per collector (owner decisions 2026-11-23, increment #7, D36):
- * - the app makes a random install ID once and sends it at collector-login and refresh;
+ * - the app reads the phone's own device ID and sends it at collector-login and refresh
+ *   (revised 2026-11-23 from an app install ID; the backend treats it as an opaque string);
  * - the first sign-in registers that phone; sign-in from another phone is refused (403) until
  *   the phone is released;
  * - the branch's agent or an administrator releases it (lost, replaced or reinstalled phone),

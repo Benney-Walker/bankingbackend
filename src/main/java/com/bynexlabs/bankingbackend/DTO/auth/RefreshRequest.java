@@ -13,7 +13,7 @@ public class RefreshRequest {
     @NotBlank(message = "Refresh token is required")
     private String refreshToken;
 
-    /** The collector app's install ID: required to refresh a collector session (V42). */
+    /** The collector's phone's device ID: required to refresh a collector session (V42). */
     @Size(max = 100, message = "deviceId is at most 100 characters")
     private String deviceId;
 

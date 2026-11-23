@@ -19,7 +19,8 @@ public class LoginRequest {
     private String password;
 
     /**
-     * The collector app's install ID (owner decision 2026-11-23): required at collector-login,
+     * The phone's own device ID, read by the collector app (owner decision 2026-11-23, revised
+     * the same day from an app install ID): required at collector-login,
      * ignored at staff-login.
      */
     @Size(max = 100, message = "deviceId is at most 100 characters")

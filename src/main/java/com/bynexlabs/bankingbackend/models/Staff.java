@@ -74,7 +74,7 @@ public class Staff {
     private Instant sessionsValidAfter;
 
     /**
-     * A collector's registered phone: the app's install ID (V42, owner decisions 2026-11-23).
+     * A collector's registered phone: its device ID as the app reads it (V42, owner decisions 2026-11-23).
      * Written only by CollectorDeviceService's bulk updates, like sessionsValidAfter.
      */
     @Column(name = "registered_device_id", insertable = false, updatable = false, length = 100)

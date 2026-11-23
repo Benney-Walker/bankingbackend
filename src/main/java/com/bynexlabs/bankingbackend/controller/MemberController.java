@@ -35,6 +35,18 @@ public class MemberController {
 
     private final AuthenticatedStaffProvider staffProvider;
 
+    /**
+     * Search members of every branch by part of a name, part of a phone number, or an exact
+     * account number. For another branch's member an agent doesn't see the phone number.
+     */
+    @GetMapping("/v1/search-members")
+    public PagedModel<MemberSummaryResponse> searchMembers(@RequestParam(required = false) String query,
+                                                           @RequestParam(defaultValue = "0") int page,
+                                                           @RequestParam(defaultValue = "20") int size) {
+        return memberService.searchMembers(query, page, size, staffProvider.getStaff(),
+                staffProvider.hasRole(Roles.ADMINISTRATOR));
+    }
+
     @GetMapping("/v1/member-details/{memberId}")
     public MemberProfileResponse getMember(@PathVariable UUID memberId) {
         return memberService.getMemberProfile(memberId);

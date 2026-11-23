@@ -21,6 +21,9 @@ public interface MemberAccountRepo extends JpaRepository<MemberAccount, UUID> {
 
     List<MemberAccount> findByMember_Id(UUID memberId);
 
+    /** The accounts of a page of search results, in one query. */
+    List<MemberAccount> findByMember_IdIn(Collection<UUID> memberIds);
+
     @Query("select a.id from MemberAccount a where a.accountNumber = :accountNumber")
     Optional<UUID> findIdByAccountNumber(@Param("accountNumber") String accountNumber);
 

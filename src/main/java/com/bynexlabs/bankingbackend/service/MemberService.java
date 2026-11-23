@@ -19,6 +19,7 @@ import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.MembershipStatus;
 import com.bynexlabs.bankingbackend.models.Branch;
 import com.bynexlabs.bankingbackend.models.Member;
+import com.bynexlabs.bankingbackend.models.MemberAccount;
 import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
@@ -109,6 +111,35 @@ public class MemberService {
                 "status", "success",
                 "Id", savedMember.getId()
         ));
+    }
+
+
+    /**
+     * Member search by part of a name (first, middle, last, or first + last), part of a phone
+     * number, or an exact account number (owner decisions 2026-11-23). Administrators and agents
+     * search every branch: agents need it to serve any branch's member at the counter. For a
+     * member of another branch an agent sees name, branch, status and accounts, but not the
+     * phone number. A query is required: listing members belongs with member visibility (#4).
+     */
+    @Transactional(readOnly = true)
+    public PagedModel<MemberSummaryResponse> searchMembers(String query, int page, int size, Staff viewer,
+                                                           boolean viewerIsAdmin) {
+        if (query == null || query.isBlank()) {
+            throw new BadRequestException("Enter a name, phone number or account number to search");
+        }
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BadRequestException("page must be 0 or more and size between 1 and " + MAX_PAGE_SIZE);
+        }
+        Page<Member> members = memberRepository.search(query.trim(),
+                PageRequest.of(page, size, Sort.by("lastName", "firstName")));
+        Map<UUID, List<MemberAccount>> accounts = members.isEmpty() ? Map.of()
+                : memberAccountRepo.findByMember_IdIn(members.map(Member::getId).toList()).stream()
+                    .collect(Collectors.groupingBy(account -> account.getMember().getId()));
+        UUID viewerBranchId = viewer.getBranch() == null ? null : viewer.getBranch().getId();
+        return new PagedModel<>(members.map(member -> MemberSummaryResponse.from(member,
+                accounts.getOrDefault(member.getId(), List.of()),
+                viewerIsAdmin || (viewerBranchId != null && member.getBranch() != null
+                        && viewerBranchId.equals(member.getBranch().getId())))));
     }
 
     @Transactional(readOnly = true)

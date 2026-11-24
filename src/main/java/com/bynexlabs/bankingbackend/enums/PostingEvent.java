@@ -13,5 +13,9 @@ public enum PostingEvent {
     /** A collector's share purchase, applied when its correction window closes. */
     COLLECTOR_SHARE_PURCHASE,
     /** A collector's cash counted in at the office when their daily submission is approved. */
-    COLLECTOR_HANDOVER
+    COLLECTOR_HANDOVER,
+    /** An approved loan paid into the member's account, less the processing fee. */
+    LOAN_DISBURSEMENT,
+    /** A loan installment (or part of one) taken from the member's account. */
+    LOAN_REPAYMENT
 }

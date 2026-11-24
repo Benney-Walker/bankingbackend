@@ -60,6 +60,7 @@ class FinancialSettingsServiceTest {
                 .withdrawalFeeEnabled(true)
                 .withdrawalFeeType(WithdrawalFeeType.FLAT)
                 .withdrawalFeeValue(new BigDecimal("2.0000"))
+                .loanMinMembershipMonths(3)
                 .version(0L)
                 .updatedAt(Instant.parse("2026-11-14T00:00:00Z"))
                 .build();
@@ -74,6 +75,7 @@ class FinancialSettingsServiceTest {
                 .withdrawalFeeEnabled(true)
                 .withdrawalFeeType(WithdrawalFeeType.FLAT)
                 .withdrawalFeeValue(new BigDecimal("2"))
+                .loanMinMembershipMonths(3)
                 .version(0L);
     }
 

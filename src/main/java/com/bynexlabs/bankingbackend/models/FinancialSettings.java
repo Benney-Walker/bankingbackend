@@ -60,6 +60,10 @@ public class FinancialSettings {
     @Column(name = "withdrawal_fee_value", nullable = false, precision = 19, scale = 4)
     private BigDecimal withdrawalFeeValue;
 
+    /** A member must have been registered this many months before they can borrow (V46). */
+    @Column(name = "loan_min_membership_months", nullable = false)
+    private int loanMinMembershipMonths;
+
     @Version
     @Column(name = "version", nullable = false)
     private Long version;

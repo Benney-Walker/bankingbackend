@@ -24,5 +24,11 @@ public enum AuditAction {
     COLLECTOR_DEVICE_REGISTERED,
     COLLECTOR_DEVICE_RELEASED,
     /** A staff member generated an account statement (owner decision 2026-11-23). */
-    ACCOUNT_STATEMENT_GENERATED
+    ACCOUNT_STATEMENT_GENERATED,
+    LOAN_PRODUCT_CREATED,
+    LOAN_PRODUCT_UPDATED,
+    LOAN_APPLICATION_SUBMITTED,
+    /** An administrator approved a loan; it was paid out at once. */
+    LOAN_APPROVED,
+    LOAN_REJECTED
 }

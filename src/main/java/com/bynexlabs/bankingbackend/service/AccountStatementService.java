@@ -161,6 +161,11 @@ public class AccountStatementService {
                         ? List.of(new Movement("Withdrawal" + note, amount.negate()), new Movement("Withdrawal fee", fee.negate()))
                         : List.of(new Movement("Withdrawal" + note, amount.negate()));
                 case TRANSFER -> List.of(new Movement("Transfer to " + counterpartyNumber(transaction) + note, amount.negate()));
+                // Loans (V46): the payout with its processing fee as a separate row, and each installment taken.
+                case LOAN_DISBURSEMENT -> fee.signum() > 0
+                        ? List.of(new Movement("Loan paid in" + note, amount), new Movement("Loan processing fee", fee.negate()))
+                        : List.of(new Movement("Loan paid in" + note, amount));
+                case LOAN_PAYMENT -> List.of(new Movement("Loan repayment" + note, amount.negate()));
                 default -> throw new IllegalStateException("A statement can't show a " + transaction.getTransactionType()
                         + " transaction yet (" + transaction.getId() + ")");
             };

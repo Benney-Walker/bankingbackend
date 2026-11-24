@@ -84,6 +84,7 @@ public class FinancialSettingsService {
         track(changes, "withdrawalFeeEnabled", settings.isWithdrawalFeeEnabled(), request.getWithdrawalFeeEnabled());
         track(changes, "withdrawalFeeType", settings.getWithdrawalFeeType(), request.getWithdrawalFeeType());
         track(changes, "withdrawalFeeValue", settings.getWithdrawalFeeValue(), request.getWithdrawalFeeValue());
+        track(changes, "loanMinMembershipMonths", settings.getLoanMinMembershipMonths(), request.getLoanMinMembershipMonths());
 
         // Saving without changes is a no-op, so the version doesn't move and nothing is logged.
         if (changes.isEmpty()) {
@@ -97,6 +98,7 @@ public class FinancialSettingsService {
         settings.setWithdrawalFeeEnabled(request.getWithdrawalFeeEnabled());
         settings.setWithdrawalFeeType(request.getWithdrawalFeeType());
         settings.setWithdrawalFeeValue(request.getWithdrawalFeeValue());
+        settings.setLoanMinMembershipMonths(request.getLoanMinMembershipMonths());
         settings.setUpdatedAt(Instant.now(clock));
         settings.setUpdatedBy(editorStaffId);
 

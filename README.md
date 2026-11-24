@@ -34,6 +34,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
 | Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
+| Loans | `LOAN_REPAYMENT_CRON` (optional, default `0 30 23 * * *`, Africa/Accra): when due loan installments are taken from members' accounts each day |
 | Statements | `CREDIT_UNION_NAME` (default `Credit Union`, a placeholder): the name printed at the top of account statements |
 | Collector payments | `COLLECTOR_FINALIZE_INTERVAL_MS` (optional, default `60000`): how often any payment still `PENDING` from the old 10-minute window is applied (payments are now applied on arrival) |
 | CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
@@ -117,6 +118,16 @@ Access is set by URL in `SecurityConfig`:
 | GET | `/api/transaction/v1/account/{accountNumber}` | Account balances, type, status and owner |
 | GET | `/api/transaction/v1/history/{accountNumber}?page=0&size=20` | The account's transactions, newest first, `size` 1–100. Includes transfers into it and first deposits that bought its shares |
 | GET | `/api/transaction/v1/statement/{accountNumber}?from=2026-11-01&to=2026-11-30` | Account statement as a PDF download (see "Account statements"). Administrators any member, agents their own branch (403 otherwise). `from` and `to` required, any range |
+| GET | `/api/loan/v1/products` | Loan products: agents see active ones, administrators all. See "Loans" |
+| POST | `/api/loan/v1/applications` | Admin or agent: apply for a member of any branch: `{ "memberId", "productId", "amount", "termMonths", "guarantorMemberIds": [], "purpose" }` |
+| GET | `/api/loan/v1/applications?status=&memberId=&page=0&size=20` | Applications, newest first |
+| GET | `/api/loan/v1/applications/{applicationId}` | One application with its guarantors (and `loanId` once approved) |
+| GET | `/api/loan/v1/members/{memberId}/loans` | A member's loans with paid, outstanding and overdue totals |
+| GET | `/api/loan/v1/loans/{loanId}` | One loan with its monthly installments |
+| POST | `/api/admin/v1/loan-products` | Administrator: create a product (name, `interestRatePercent` a year, min/max amount, max term, processing fee type and value, guarantors required, active) |
+| PUT | `/api/admin/v1/loan-products/{productId}` | Administrator: replace a product's terms, including `active` |
+| POST | `/api/admin/v1/loan-applications/{applicationId}/approve` | Administrator: approve (optional body `{ "approvedAmount" }`, never above the request); pays the loan in at once. Not your own application (403) |
+| POST | `/api/admin/v1/loan-applications/{applicationId}/reject` | Administrator: reject, body `{ "reason" }`. Not your own application (403) |
 | GET | `/api/collector/v1/members` | Collector: members in their branch with their savings and shares accounts (`memberName`, `accounts[]` of `accountNumber` and `accountType`); no other details, no balances |
 | POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "createdAt", "updatedAt" }` (phone times, both required). Applied on arrival. See "Collector recording" |
 | GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
@@ -260,6 +271,7 @@ Settings the credit union changes without a code change live in the `financial_s
 | `withdrawalFeeEnabled` | Whether the withdrawal fee is charged | true |
 | `withdrawalFeeType` | `FLAT` (GHS per withdrawal) or `PERCENTAGE` (of the amount withdrawn) | FLAT |
 | `withdrawalFeeValue` | GHS for `FLAT`; percent for `PERCENTAGE` (1.5 = 1.5%, at most 100). A percentage fee is rounded to 2 decimal places, half up | 2.00 |
+| `loanMinMembershipMonths` | A member must have been registered this many months before they can apply for a loan (V46) | 3 |
 
 The mock values are placeholders until the credit union gives its real ones.
 
@@ -309,6 +321,18 @@ Administrators and agents record money movements at the office through `/api/tra
 
 The chart (V33) and rules are a working version until the credit union's accountant reviews them.
 
+## Loans
+
+Owner decisions 2026-11-24 (D25, D26). Builds on the V6 loan tables (V46).
+
+- **Products:** administrators create and change them (`/api/admin/v1/loan-products`); every change is audited. **Flat interest at a yearly rate:** interest = amount × rate × months ÷ 12 (GHS 1,000 at 10% for 6 months = GHS 50). Each product has min/max amount, max term in months, a **processing fee** (FLAT GHS or PERCENTAGE of the approved amount, 2 dp half up) and the **number of guarantors** it needs.
+- **Applying:** agents and administrators apply for a member of **any branch**. The member must be `ACTIVE` (KYC done), registered at least `loanMinMembershipMonths` ago (financial settings, mock 3), and have **no loan being repaid** and no other waiting application. Guarantors: exactly the product's number, other `ACTIVE` members, **recorded only**.
+- **Approving:** administrators only; they can approve **less** than asked (never more, never below the product's minimum), or reject with a reason. Nobody reviews an application they entered (403). **Approval pays out at once:** the loan goes into the member's savings or current account **minus the processing fee** (one `LOAN_DISBURSEMENT` transaction; journal: 1100 Loans Receivable debit, the member's account credit for the loan less the fee, 4020 for the fee). The member is texted the payout, the fee, the total to repay and the first installment.
+- **Installments:** monthly, due on the **payout day of each month** (the last day of a shorter month). Every installment but the last is the amount and the interest divided by the months, rounded down to the pesewa; the last carries the rest.
+- **Repayment:** `LoanRepaymentJob` runs daily (`LOAN_REPAYMENT_CRON`, default 23:30 so the day's susu collections are in) and takes due installments from the same account, oldest first. **Whatever is there is taken**, even if it empties the account; the rest stays `OVERDUE` and is tried again every day. No penalty, no early payoff. Each amount is a `LOAN_PAYMENT` transaction (channel `SYSTEM`); in the ledger it's split between 1100 (borrowed money) and 4010 (interest) **in the installment's own ratio** (25 of a 40 + 10 installment → 20 + 5). The member only sees totals: the SMS says what was taken, what's left on that installment and on the whole loan. Each installment is tried at most once a day (the idempotency key includes the date), so a rerun can't take money twice. A frozen or closed account is skipped and the installment marked overdue. The loan closes (`CLOSED_PAID`) when every installment is paid.
+- **Statements** show "Loan paid in", "Loan processing fee" and each "Loan repayment".
+- **Audit:** `LOAN_PRODUCT_CREATED`, `LOAN_PRODUCT_UPDATED`, `LOAN_APPLICATION_SUBMITTED`, `LOAN_APPROVED`, `LOAN_REJECTED`.
+
 ## Account statements
 
 Owner decisions 2026-11-23. `GET /api/transaction/v1/statement/{accountNumber}?from=&to=` returns a PDF (`statement-<account>-<from>-<to>.pdf`) built by the backend with JasperReports.
@@ -337,6 +361,8 @@ Business actions are recorded in the `audit_log` table (V22), in the same databa
 | `KYC_DOCUMENT_VIEWED` | A staff member opened a member's ID document |
 | `FINANCIAL_SETTINGS_UPDATED` | An administrator changed the financial settings (target `SETTINGS`, old and new values) |
 | `ACCOUNT_STATEMENT_GENERATED` | A staff member generated an account statement (target `ACCOUNT` with the account number, and the dates) |
+| `LOAN_PRODUCT_CREATED`, `LOAN_PRODUCT_UPDATED` | An administrator created or changed a loan product (target `LOAN_PRODUCT`, the terms or changed values) |
+| `LOAN_APPLICATION_SUBMITTED`, `LOAN_APPROVED`, `LOAN_REJECTED` | A loan application was entered, approved (amount, fee, interest, account paid into) or rejected (reason); target `LOAN_APPLICATION` |
 
 Passwords, reset codes and document contents are never written to the log. There's no endpoint for reading the log yet.
 
@@ -377,6 +403,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V43 | `collector_shortage_repayment` and its posting rules (removed by V44 the same day) |
 | V44 | Shortages no longer allowed: drops `collector_shortage_repayment` and its posting rules |
 | V45 | Collector records final on arrival: `transaction.received_at` (server time, backfilled) and `updated_at` (phone's last edit); an offline record's `recorded_at` moves into `created_at`, then `recorded_at` is dropped. `collector_correction` is kept as history |
+| V46 | Loans: product fee and guarantors count, `financial_settings.loan_min_membership_months`, application reviewer/purpose and statuses PENDING/APPROVED/REJECTED (one waiting per member), `loan_guarantor`, loan account member/interest/fee/payout link (one ACTIVE per member; the repayment account can be reused), installment `paid_at` and checks, `loan_repayment`, channel `SYSTEM`, amount parts `LOAN_PRINCIPAL`/`INTEREST`, posting rules for `LOAN_DISBURSEMENT` and `LOAN_REPAYMENT` |
 
 ## Status
 
@@ -398,8 +425,7 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Collector accounts | Staff with only the COLLECTOR role; own login and refresh endpoints; one active agent per branch (see "Collectors") |
 | Collector recording | Savings deposits and share purchases, final on arrival (the app's 5-minute correction window), day summary, daily submission and approval with cash counted. No withdrawal requests: members withdraw at any branch's office |
 | Account statements | PDF for any date range (JasperReports), opening/closing balance, running balance, totals; audited |
-| Loans | Not implemented |
-| Loans | Entities only; lending rules not approved (Phase 7) |
+| Loans | Products, applications with guarantors, approval with payout (fee kept back), monthly installments taken daily from the account, statements and SMS (owner decisions 2026-11-24, V46) |
 
 ### Completed increments
 
@@ -434,3 +460,4 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Sessions and daily submission (PR #14, V39):** stored, rotating refresh tokens with stolen-token detection; `logout`; sessions ended at once on logout, daily approval, password reset, deactivation and role change. Collectors close the day with a submission of all unsubmitted payments; the branch's agent or an administrator approves with the cash counted (1015 → 1010, surplus to 2030; no shortages since 2026-11-23); approval signs the collector out until tomorrow.
 - **Collector records final on arrival (PR #14, V45, 2026-11-23):** the app keeps a payment for 5 minutes and corrects it there; the backend applies it on arrival with the phone's `createdAt`/`updatedAt` and its own `receivedAt`; correction endpoint removed; a payment from a day already submitted → 409.
 - **Account statements (PR #14, 2026-11-23):** PDF statements with JasperReports for any date range: opening and closing balance, running balance, money in and out; administrators any member, agents own branch; audited.
+- **Loans (PR #14, V46, 2026-11-24):** admin-managed products (flat yearly interest, processing fee, guarantors count); applications by agents or admins for any branch; admin approval pays out at once minus the fee; monthly installments taken daily from the member's account (partial allowed, overdue retried, proportional ledger split); SMS, statements and audit.

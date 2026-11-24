@@ -162,6 +162,29 @@ class AccountStatementServiceTest {
                 .satisfies(movement -> assertThat(movement.details()).isEqualTo("Share purchase by collector - market day"));
     }
 
+    // Loans (V46): the payout with its fee as a separate row, and each installment taken.
+    @Test
+    void loanPayoutAndRepaymentsShowOnTheStatement() {
+        Transaction payout = transaction(TransactionType.LOAN_DISBURSEMENT, savings, "1000", LocalDateTime.of(2026, 11, 14, 10, 0));
+        payout.setFeeAmount(new BigDecimal("20"));
+        payout.setDescription("Susu Loan loan");
+        Transaction installment = transaction(TransactionType.LOAN_PAYMENT, savings, "25", LocalDateTime.of(2026, 12, 14, 23, 30));
+        installment.setDescription("Installment 1 of 6");
+
+        assertThat(AccountStatementService.movements(payout, savings.getId()))
+                .extracting(AccountStatementService.Movement::details)
+                .containsExactly("Loan paid in - Susu Loan loan", "Loan processing fee");
+        assertThat(AccountStatementService.movements(payout, savings.getId()))
+                .extracting(AccountStatementService.Movement::amount).usingElementComparator(BigDecimal::compareTo)
+                .containsExactly(new BigDecimal("1000"), new BigDecimal("-20"));
+        assertThat(AccountStatementService.movements(installment, savings.getId()))
+                .singleElement()
+                .satisfies(movement -> {
+                    assertThat(movement.details()).isEqualTo("Loan repayment - Installment 1 of 6");
+                    assertThat(movement.amount()).isEqualByComparingTo("-25");
+                });
+    }
+
     @Test
     void emptyPeriodKeepsTheBalance() {
         accountExists(savings);

@@ -3,6 +3,8 @@ package com.bynexlabs.bankingbackend.service;
 import com.bynexlabs.bankingbackend.DTO.rabbitMQ.TransactionSmsEvent;
 import com.bynexlabs.bankingbackend.config.RabbitMQConfig;
 import com.bynexlabs.bankingbackend.enums.AccountType;
+import com.bynexlabs.bankingbackend.models.AmortizationSchedule;
+import com.bynexlabs.bankingbackend.models.LoanAccount;
 import com.bynexlabs.bankingbackend.models.MemberAccount;
 import com.bynexlabs.bankingbackend.models.Transaction;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +39,8 @@ import java.util.Locale;
 public class TransactionSmsService {
 
     private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final OutboxService outboxService;
 
@@ -95,6 +99,31 @@ public class TransactionSmsService {
                 + " on " + when(transaction) + ". New balance: " + money(from.getCurrentBalance()) + ref(transaction));
         send(transaction, to, amount + " received in your " + describe(to) + " from account " + mask(from)
                 + " on " + when(transaction) + ". New balance: " + money(to.getCurrentBalance()) + ref(transaction));
+    }
+
+    /** An approved loan paid into the member's account (owner decisions 2026-11-24). */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void loanPaidIn(Transaction transaction, MemberAccount account, LoanAccount loan, AmortizationSchedule first) {
+        BigDecimal fee = transaction.getFeeAmount();
+        String feePart = fee == null || fee.signum() == 0 ? "" : " Processing fee: " + money(fee) + ".";
+        send(transaction, account, "Your loan of " + money(transaction.getAmount()) + " was paid into your " + describe(account)
+                + " on " + when(transaction) + "." + feePart + " To repay: " + money(loan.getPrincipalAmount().add(loan.getTotalInterest()))
+                + " in " + loan.getTermMonths() + " monthly installment(s), taken from this account; the first, "
+                + money(first.getExpectedTotal()) + ", on " + first.getDueDate().format(DAY) + ". New balance: "
+                + money(account.getCurrentBalance()) + ref(transaction));
+    }
+
+    /**
+     * An amount taken for a loan installment. The member sees only totals: what was taken, what's
+     * left on this installment and on the whole loan (owner decision 2026-11-24).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void loanInstallment(Transaction transaction, MemberAccount account, AmortizationSchedule installment,
+                                int installments, BigDecimal loanLeft) {
+        send(transaction, account, money(transaction.getAmount()) + " taken from your " + describe(account) + " on "
+                + when(transaction) + " for loan installment " + installment.getInstallmentNumber() + " of " + installments
+                + ". Left on this installment: " + money(installment.remaining()) + ". Left on the loan: " + money(loanLeft)
+                + ". New balance: " + money(account.getCurrentBalance()) + ref(transaction));
     }
 
     private void send(Transaction transaction, MemberAccount account, String message) {

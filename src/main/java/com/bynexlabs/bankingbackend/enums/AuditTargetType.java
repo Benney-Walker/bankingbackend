@@ -9,5 +9,9 @@ public enum AuditTargetType {
     /** target_id names the settings group, e.g. "financial". */
     SETTINGS,
     /** target_id is the member account number. */
-    ACCOUNT
+    ACCOUNT,
+    /** target_id is the loan product ID. */
+    LOAN_PRODUCT,
+    /** target_id is the loan application ID. */
+    LOAN_APPLICATION
 }

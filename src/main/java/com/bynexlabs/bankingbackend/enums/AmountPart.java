@@ -13,5 +13,9 @@ public enum AmountPart {
     /** The part of a collector handover that settles recorded collections (at most the expected amount). */
     SETTLED,
     /** Cash counted in a collector handover above the expected amount. */
-    OVERAGE
+    OVERAGE,
+    /** The borrowed-money part of a loan installment collected. */
+    LOAN_PRINCIPAL,
+    /** The interest part of a loan installment collected. */
+    INTEREST
 }

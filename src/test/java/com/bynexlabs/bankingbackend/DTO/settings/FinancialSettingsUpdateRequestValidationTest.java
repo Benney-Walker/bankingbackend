@@ -40,6 +40,7 @@ class FinancialSettingsUpdateRequestValidationTest {
                 .withdrawalFeeEnabled(true)
                 .withdrawalFeeType(WithdrawalFeeType.FLAT)
                 .withdrawalFeeValue(new BigDecimal("2"))
+                .loanMinMembershipMonths(3)
                 .version(0L);
     }
 

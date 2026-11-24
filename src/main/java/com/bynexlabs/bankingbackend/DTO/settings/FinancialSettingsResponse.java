@@ -18,6 +18,7 @@ public record FinancialSettingsResponse(
         boolean withdrawalFeeEnabled,
         WithdrawalFeeType withdrawalFeeType,
         BigDecimal withdrawalFeeValue,
+        int loanMinMembershipMonths,
         long version,
         Instant updatedAt,
         String updatedBy) {
@@ -31,6 +32,7 @@ public record FinancialSettingsResponse(
                 settings.isWithdrawalFeeEnabled(),
                 settings.getWithdrawalFeeType(),
                 settings.getWithdrawalFeeValue(),
+                settings.getLoanMinMembershipMonths(),
                 settings.getVersion(),
                 settings.getUpdatedAt(),
                 settings.getUpdatedBy());

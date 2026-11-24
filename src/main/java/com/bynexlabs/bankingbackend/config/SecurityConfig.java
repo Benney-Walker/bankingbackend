@@ -91,6 +91,9 @@ public class SecurityConfig {
                         // Office money movements (owner decision 2026-11-14): administrators and agents.
                         // Collectors will record through their own flow later.
                         .requestMatchers("/api/transaction/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
+                        // Loans (owner decisions 2026-11-24): agents and admins apply and read;
+                        // product changes and approvals are under /api/admin.
+                        .requestMatchers("/api/loan/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
                         // The collector app (owner decision 2026-11-14): collector accounts only.
                         .requestMatchers("/api/collector/**").hasAuthority(Roles.COLLECTOR.name())
                         .anyRequest().authenticated()

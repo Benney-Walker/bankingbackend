@@ -2,6 +2,7 @@ package com.bynexlabs.bankingbackend.DTO.settings;
 
 import com.bynexlabs.bankingbackend.enums.WithdrawalFeeType;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -52,6 +53,11 @@ public class FinancialSettingsUpdateRequest {
     @PositiveOrZero(message = "Withdrawal fee value can't be negative")
     @Digits(integer = 15, fraction = 4, message = "Withdrawal fee value is too large or has more than 4 decimal places")
     private BigDecimal withdrawalFeeValue;
+
+    @NotNull(message = "Minimum membership months for a loan is required")
+    @PositiveOrZero(message = "Minimum membership months can't be negative")
+    @Max(value = 600, message = "Minimum membership months can't be more than 600")
+    private Integer loanMinMembershipMonths;
 
     @NotNull(message = "Version is required; send the version you last read")
     private Long version;

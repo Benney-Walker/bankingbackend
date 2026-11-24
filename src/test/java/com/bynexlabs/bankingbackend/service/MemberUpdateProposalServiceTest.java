@@ -12,7 +12,6 @@ import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.MemberUpdateStatus;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
-import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.models.Branch;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberUpdateProposal;
@@ -186,14 +185,15 @@ class MemberUpdateProposalServiceTest {
         verifyNoInteractions(memberService, outboxService);
     }
 
+    // Owner, 2026-11-24: administrators are the top role, so they can review their own proposal.
     @Test
-    void nobodyReviewsTheirOwnProposal() {
+    void administratorCanReviewTheirOwnProposal() {
         MemberUpdateProposal proposal = pending(admin);
 
-        assertThatThrownBy(() -> service.approve(proposal.getId(), admin))
-                .isInstanceOf(ForbiddenException.class)
-                .hasMessage("You can't review your own request");
-        verifyNoInteractions(memberService, outboxService);
+        MemberUpdateProposalResponse response = service.approve(proposal.getId(), admin);
+
+        assertThat(response.status()).isEqualTo(MemberUpdateStatus.APPROVED);
+        verify(memberService).updateMemberContact(eq(member.getId()), any(MemberUpdateRequest.class));
     }
 
     @Test

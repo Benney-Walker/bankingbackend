@@ -41,13 +41,13 @@ public class AdminController {
         return memberUpdateProposalService.list(status, page, size);
     }
 
-    /** Applies the proposed change and texts the member. Not for your own proposal (403). */
+    /** Applies the proposed change and texts the member. Administrators may review their own proposals. */
     @PostMapping("/v1/member-update-requests/{requestId}/approve")
     public MemberUpdateProposalResponse approveMemberUpdate(@PathVariable UUID requestId) {
         return memberUpdateProposalService.approve(requestId, staffProvider.getStaff());
     }
 
-    /** Rejects with a reason the proposer sees. Not for your own proposal (403). */
+    /** Rejects with a reason the proposer sees. */
     @PostMapping("/v1/member-update-requests/{requestId}/reject")
     public MemberUpdateProposalResponse rejectMemberUpdate(@PathVariable UUID requestId,
                                                            @Valid @RequestBody KycRejectionRequest request) {

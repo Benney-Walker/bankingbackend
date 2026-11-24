@@ -47,7 +47,7 @@ public class LoanAdminController {
 
     /**
      * Approves, optionally a lower amount, and pays the loan into the member's account at once.
-     * Body optional. Not for an application you entered (403).
+     * Body optional. Administrators may approve an application they entered.
      */
     @PostMapping("/v1/loan-applications/{applicationId}/approve")
     public LoanApplicationResponse approve(@PathVariable UUID applicationId,
@@ -56,7 +56,7 @@ public class LoanAdminController {
                 staffProvider.getStaff());
     }
 
-    /** Rejects with a reason. Not for an application you entered (403). */
+    /** Rejects with a reason. */
     @PostMapping("/v1/loan-applications/{applicationId}/reject")
     public LoanApplicationResponse reject(@PathVariable UUID applicationId, @Valid @RequestBody KycRejectionRequest request) {
         return applicationService.reject(applicationId, request.getReason(), staffProvider.getStaff());

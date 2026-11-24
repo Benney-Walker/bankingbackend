@@ -23,7 +23,6 @@ import com.bynexlabs.bankingbackend.enums.TransactionChannel;
 import com.bynexlabs.bankingbackend.enums.TransactionType;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
-import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.models.AmortizationSchedule;
 import com.bynexlabs.bankingbackend.models.Branch;
 import com.bynexlabs.bankingbackend.models.FinancialSettings;
@@ -319,13 +318,14 @@ class LoanApplicationServiceTest {
         verify(transactionService, never()).record(any());
     }
 
+    // Owner, 2026-11-24: administrators are the top role, so they can approve an application they entered.
     @Test
-    void cantReviewAnApplicationYouEntered() {
+    void administratorCanApproveAnApplicationTheyEntered() {
         LoanApplication application = pending();
         application.setAppliedBy(admin);
-        when(applicationRepo.lockById(application.getId())).thenReturn(Optional.of(application));
+        readyToApprove(application);
 
-        assertThatThrownBy(() -> service.approve(application.getId(), null, admin)).isInstanceOf(ForbiddenException.class);
+        assertThat(service.approve(application.getId(), null, admin).status()).isEqualTo(ApplicationStatus.APPROVED);
     }
 
     // The application row is locked, so a second approval can't pay the loan twice.

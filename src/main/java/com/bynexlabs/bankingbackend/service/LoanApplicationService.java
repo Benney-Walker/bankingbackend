@@ -26,7 +26,6 @@ import com.bynexlabs.bankingbackend.enums.TransactionStatus;
 import com.bynexlabs.bankingbackend.enums.TransactionType;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
-import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.exception.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.models.AmortizationSchedule;
 import com.bynexlabs.bankingbackend.models.LoanAccount;
@@ -64,7 +63,8 @@ import java.util.UUID;
  * - the member must be ACTIVE (KYC done), registered at least loanMinMembershipMonths (financial
  *   settings) ago, and have no loan being repaid and no other waiting application;
  * - the product's number of guarantors: other ACTIVE members, recorded only;
- * - administrators approve, possibly a lower amount, or reject with a reason. Approval pays the loan
+ * - administrators approve, possibly a lower amount, or reject with a reason; as the top role they
+ *   may also review an application they entered (owner, 2026-11-24). Approval pays the loan
  *   into the member's savings or current account at once, minus the product's processing fee,
  *   and sets up the monthly installments (flat interest at the product's yearly rate);
  * - every step is audited; the member is texted when the loan is paid in.
@@ -161,7 +161,6 @@ public class LoanApplicationService {
     @Transactional
     public LoanApplicationResponse approve(UUID applicationId, BigDecimal approvedAmount, Staff admin) {
         LoanApplication application = lockPending(applicationId);
-        requireNotOwn(application, admin);
         LoanProduct product = application.getLoanProduct();
         if (!Boolean.TRUE.equals(product.getIsActive())) {
             throw new ConflictException("The loan product " + product.getName() + " is not offered at the moment");
@@ -266,7 +265,6 @@ public class LoanApplicationService {
             throw new BadRequestException("A reason is required to reject an application");
         }
         LoanApplication application = lockPending(applicationId);
-        requireNotOwn(application, admin);
         LocalDateTime now = LocalDateTime.now(clock);
         application.setStatus(ApplicationStatus.REJECTED);
         application.setRejectionReason(reason.trim());
@@ -372,13 +370,6 @@ public class LoanApplicationService {
             throw new ConflictException("This application was already " + application.getStatus().name().toLowerCase(Locale.ENGLISH));
         }
         return application;
-    }
-
-    // Claude's choice, same as member update approval: nobody reviews an application they entered.
-    private static void requireNotOwn(LoanApplication application, Staff admin) {
-        if (application.getAppliedBy() != null && application.getAppliedBy().getId().equals(admin.getId())) {
-            throw new ForbiddenException("You can't review a loan application you entered");
-        }
     }
 
     private static PageRequest pageRequest(int page, int size) {

@@ -13,7 +13,6 @@ import com.bynexlabs.bankingbackend.enums.AuditTargetType;
 import com.bynexlabs.bankingbackend.enums.MemberUpdateStatus;
 import com.bynexlabs.bankingbackend.exception.BadRequestException;
 import com.bynexlabs.bankingbackend.exception.ConflictException;
-import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.exception.ResourceNotFoundException;
 import com.bynexlabs.bankingbackend.models.Member;
 import com.bynexlabs.bankingbackend.models.MemberUpdateProposal;
@@ -99,10 +98,13 @@ public class MemberUpdateProposalService {
         return MemberUpdateProposalResponse.from(proposal);
     }
 
-    /** Applies the change and texts the member. Reviewing your own proposal is refused. */
+    /**
+     * Applies the change and texts the member. Administrators are the top role (owner,
+     * 2026-11-24), so they may also review a proposal they made themselves.
+     */
     @Transactional
     public MemberUpdateProposalResponse approve(UUID requestId, Staff administrator) {
-        MemberUpdateProposal proposal = lockForReview(requestId, administrator);
+        MemberUpdateProposal proposal = lockForReview(requestId);
         UUID memberId = proposal.getMember().getId();
 
         // The same checks and audit entry as a direct update; a phone number taken since the
@@ -130,7 +132,7 @@ public class MemberUpdateProposalService {
         if (reason == null || reason.isBlank()) {
             throw new BadRequestException("A rejection reason is required");
         }
-        MemberUpdateProposal proposal = lockForReview(requestId, administrator);
+        MemberUpdateProposal proposal = lockForReview(requestId);
         reviewed(proposal, MemberUpdateStatus.REJECTED, administrator, reason.trim());
         auditLogService.record(AuditAction.MEMBER_UPDATE_REJECTED, AuditTargetType.MEMBER,
                 proposal.getMember().getId(), "Request " + proposal.getId());
@@ -151,15 +153,11 @@ public class MemberUpdateProposalService {
                 .map(MemberUpdateProposalResponse::from));
     }
 
-    private MemberUpdateProposal lockForReview(UUID requestId, Staff reviewer) {
+    private MemberUpdateProposal lockForReview(UUID requestId) {
         MemberUpdateProposal proposal = proposalRepo.lockById(requestId)
                 .orElseThrow(() -> new ResourceNotFoundException("Update request not found"));
         if (proposal.getStatus() != MemberUpdateStatus.PENDING) {
             throw new ConflictException("This request was already " + proposal.getStatus().name().toLowerCase());
-        }
-        // Maker-checker: the proposer can't decide on their own proposal.
-        if (proposal.getRequestedBy().getId().equals(reviewer.getId())) {
-            throw new ForbiddenException("You can't review your own request");
         }
         return proposal;
     }

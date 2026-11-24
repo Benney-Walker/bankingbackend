@@ -30,6 +30,7 @@ import com.bynexlabs.bankingbackend.models.Staff;
 import com.bynexlabs.bankingbackend.models.StaffRoles;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
@@ -72,6 +73,10 @@ public class StaffService {
     private final SessionService sessionService;
 
     private final OutboxService outboxService;
+
+    /** The server's public address (Railway), for the password reset link in the welcome SMS. */
+    @Value("${app.public-base-url}")
+    String publicBaseUrl;
 
     private static final SecureRandom PASSWORD_RANDOM = new SecureRandom();
 
@@ -338,16 +343,24 @@ public class StaffService {
                 StaffSmsEvent.builder()
                         .staffId(newStaffId)
                         .phoneNumber(staff.getPhoneNumber())
-                        .message(welcomeSms(staff.getFirstName(), branch.getName(), newStaffId))
+                        .message(welcomeSms(staff.getFirstName(), branch.getName(), newStaffId,
+                                passwordResetLink(publicBaseUrl, newStaffId)))
                         .build());
         return ResponseEntity.ok().build();
     }
 
-    // Owner-chosen wording, 2026-11-15.
-    static String welcomeSms(String firstName, String branchName, String staffId) {
+    // Owner-chosen wording, 2026-11-15; the reset page link replaced "through password reset"
+    // on 2026-11-24.
+    static String welcomeSms(String firstName, String branchName, String staffId, String resetLink) {
         return "Hello " + firstName.trim() + ", you've been added as staff at " + branchName.trim()
                 + " branch. Your staff ID is " + staffId
-                + ". Set your password through password reset before you sign in.";
+                + ". Set your password at " + resetLink + " before you sign in.";
+    }
+
+    /** The server's password reset page with the staff ID filled in (owner decision 2026-11-24). */
+    static String passwordResetLink(String baseUrl, String staffId) {
+        String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        return base + "/password-reset?staffId=" + staffId;
     }
 
     // 32 random bytes (256 bits) as 43 URL-safe characters, within BCrypt's 72-byte limit.

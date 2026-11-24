@@ -20,6 +20,7 @@ import com.bynexlabs.bankingbackend.enums.Roles;
 import com.bynexlabs.bankingbackend.exception.ForbiddenException;
 import com.bynexlabs.bankingbackend.models.StaffRoles;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.LockedException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
@@ -52,6 +53,9 @@ class AuthServiceTest {
 
     @Mock
     private CollectorDeviceService collectorDeviceService;
+
+    @Mock
+    private LoginAttemptService loginAttemptService;
 
     @InjectMocks
     private AuthService authService;
@@ -173,6 +177,28 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.collectorAuthentication(login("900110")))
                 .isInstanceOf(BadCredentialsException.class);
         verifyNoInteractions(staffService);
+        // Owner decisions 2026-11-24: counted towards the lockout and audited.
+        verify(loginAttemptService).wrongPassword("900110");
+    }
+
+    @Test
+    void lockedAccountIsRefusedAndAudited() {
+        when(authenticationManager.authenticate(any())).thenThrow(new LockedException("locked"));
+
+        assertThatThrownBy(() -> authService.staffAuthentication(login("900105"))).isInstanceOf(LockedException.class);
+        verify(loginAttemptService).refused("900105", "Account locked");
+        verify(loginAttemptService, never()).wrongPassword(any());
+    }
+
+    @Test
+    void successfulSignInResetsTheCountAndIsAudited() {
+        Staff staff = staffWithRoles("900105", Roles.AGENT);
+        when(staffService.getStaffDetails("900105")).thenReturn(staff);
+
+        authService.staffAuthentication(login("900105"));
+
+        verify(loginAttemptService).passwordAccepted(staff);
+        verify(loginAttemptService).signedIn(staff, "desktop app");
     }
 
     // Owner decision 2026-11-15: once today's submission is approved, no sign-in until tomorrow.

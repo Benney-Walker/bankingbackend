@@ -11,6 +11,9 @@ import com.bynexlabs.bankingbackend.models.Staff;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
 
@@ -43,12 +46,16 @@ public class AuthService {
 
     private final CollectorDeviceService collectorDeviceService;
 
+    private final LoginAttemptService loginAttemptService;
+
     public ResponseEntity<?> staffAuthentication(LoginRequest loginRequest) {
         Staff staff = authenticate(loginRequest);
         if (isCollector(staff)) {
             throw new ForbiddenException("Collectors sign in through the collector app");
         }
-        return ResponseEntity.ok(issueTokens(staff));
+        LoginResponse tokens = issueTokens(staff);
+        loginAttemptService.signedIn(staff, "desktop app");
+        return ResponseEntity.ok(tokens);
     }
 
     public LoginResponse collectorAuthentication(LoginRequest loginRequest) {
@@ -61,7 +68,9 @@ public class AuthService {
         }
         // Owner decision 2026-11-23: one registered phone per collector.
         collectorDeviceService.requireRegisteredDevice(staff, loginRequest.getDeviceId());
-        return issueTokens(staff, loginRequest.getDeviceId());
+        LoginResponse tokens = issueTokens(staff, loginRequest.getDeviceId());
+        loginAttemptService.signedIn(staff, "collector app");
+        return tokens;
     }
 
     /** A collector's refresh token can't be swapped for a desktop session. */
@@ -82,12 +91,27 @@ public class AuthService {
 
     /**
      * Checks the staff ID and password (CustomUserDetailsService reads the staffs table, which
-     * holds collectors too). Wrong credentials and inactive accounts fail here alike.
+     * holds collectors too). Wrong credentials and inactive accounts fail here alike. Owner
+     * decisions 2026-11-24: wrong passwords are counted (5 in a row lock the account until an
+     * administrator unlocks it) and every attempt is audited.
      */
     private Staff authenticate(LoginRequest loginRequest) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(loginRequest.getStaffId(), loginRequest.getPassword()));
-        return staffService.getStaffDetails(loginRequest.getStaffId());
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(loginRequest.getStaffId(), loginRequest.getPassword()));
+        } catch (BadCredentialsException e) {
+            loginAttemptService.wrongPassword(loginRequest.getStaffId());
+            throw e;
+        } catch (LockedException e) {
+            loginAttemptService.refused(loginRequest.getStaffId(), "Account locked");
+            throw e;
+        } catch (DisabledException e) {
+            loginAttemptService.refused(loginRequest.getStaffId(), "Account not active");
+            throw e;
+        }
+        Staff staff = staffService.getStaffDetails(loginRequest.getStaffId());
+        loginAttemptService.passwordAccepted(staff);
+        return staff;
     }
 
     private LoginResponse issueTokens(Staff staff) {

@@ -33,6 +33,8 @@ public class StaffResponse {
     /** When the collector's current phone was registered; null when none is (V42). */
     private LocalDateTime deviceRegisteredAt;
     private String branchName;
+    /** When the account was locked after 5 wrong passwords; null when it isn't (V47). */
+    private LocalDateTime lockedAt;
     private StaffStatus status;
     private List<Roles> roles;
     private LocalDateTime createdAt;
@@ -52,6 +54,7 @@ public class StaffResponse {
                 .residentialAddress(staff.getResidentialAddress())
                 .branchId(staff.getBranch() == null ? null : staff.getBranch().getId())
                 .deviceRegisteredAt(staff.getDeviceRegisteredAt())
+                .lockedAt(staff.getLockedAt())
                 .branchName(staff.getBranch() == null ? null : staff.getBranch().getName())
                 .status(staff.getStaffStatus())
                 .roles(staff.getRoles() == null ? List.of() : staff.getRoles().stream().map(role -> role.getRole()).toList())

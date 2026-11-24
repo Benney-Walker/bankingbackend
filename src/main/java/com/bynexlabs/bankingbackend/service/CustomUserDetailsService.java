@@ -34,6 +34,8 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .password(staff.getPassword())
                 .authorities(authorities)
                 .disabled(staff.getStaffStatus() != StaffStatus.ACTIVE)
+                // Locked after 5 wrong passwords (V47): refused before the password is checked.
+                .accountLocked(staff.getLockedAt() != null)
                 .build();
     }
 }

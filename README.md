@@ -34,6 +34,7 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | AWS Textract | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (region is `us-east-1`) |
 | Vynfy SMS | `VYNFY_SMS_URL`, `VYNFY_API_KEY`, `VYNFY_SENDER_ID` |
 | Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
+| Audit log | `AUDIT_RETENTION_CRON` (optional, default `0 15 4 * * *`, Africa/Accra): when entries older than 7 years are deleted |
 | Loans | `LOAN_REPAYMENT_CRON` (optional, default `0 30 23 * * *`, Africa/Accra): when due loan installments are taken from members' accounts each day |
 | Statements | `CREDIT_UNION_NAME` (default `Credit Union`, a placeholder): the name printed at the top of account statements |
 | Collector payments | `COLLECTOR_FINALIZE_INTERVAL_MS` (optional, default `60000`): how often any payment still `PENDING` from the old 10-minute window is applied (payments are now applied on arrival) |
@@ -128,6 +129,11 @@ Access is set by URL in `SecurityConfig`:
 | PUT | `/api/admin/v1/loan-products/{productId}` | Administrator: replace a product's terms, including `active` |
 | POST | `/api/admin/v1/loan-applications/{applicationId}/approve` | Administrator: approve (optional body `{ "approvedAmount" }`, never above the request); pays the loan in at once. Administrators may approve an application they entered |
 | POST | `/api/admin/v1/loan-applications/{applicationId}/reject` | Administrator: reject, body `{ "reason" }` |
+| GET | `/api/report/v1/transactions?from=&to=&branchId=` | Daily transactions report (JSON); `/pdf` at the end of the path for the PDF. See "Reports" |
+| GET | `/api/report/v1/collector-collections?from=&to=&branchId=` | Collector collections report (JSON, or `/pdf`) |
+| GET | `/api/report/v1/loan-portfolio?branchId=` | Loan portfolio, loans being repaid now (JSON, or `/pdf`) |
+| GET | `/api/admin/v1/audit-log?from=&to=&actorStaffId=&action=&targetType=&targetId=&page=0&size=20` | Administrator: audit log, newest first; every filter optional, `from`/`to` instants (`to` exclusive) |
+| POST | `/api/admin/v1/staff/{staffId}/unlock` | Administrator: unlock an account locked after 5 wrong passwords (409 if it isn't locked) |
 | GET | `/api/collector/v1/members` | Collector: members in their branch with their savings and shares accounts (`memberName`, `accounts[]` of `accountNumber` and `accountType`); no other details, no balances |
 | POST | `/api/collector/v1/payments` | Collector: body `{ "idempotencyKey", "type": "SAVINGS" or "SHARES", "accountNumber", "amount", "description", "createdAt", "updatedAt" }` (phone times, both required). Applied on arrival. See "Collector recording" |
 | GET | `/api/collector/v1/payments?date=2026-11-14` | Collector: their payments for a day (default today) with counts and totals |
@@ -211,7 +217,7 @@ Collectors are staff accounts (owner decision 2026-11-14): a row in `staffs` wit
 
 ## Actuator and API docs
 
-- **Actuator:** only `/actuator/health` and `/actuator/info` are exposed, and both need an ADMINISTRATOR access token (401 without a token, 403 for other roles). Health details (database, RabbitMQ, disk) are shown to that administrator. Every other actuator endpoint (env, beans, configprops, heapdump, …) is off.
+- **Actuator:** only `/actuator/health` and `/actuator/info` are exposed. `/actuator/health` answers without a token with the status only (UP/DOWN), for Railway's health check (owner, 2026-11-24); details (database, RabbitMQ, disk) only with an ADMINISTRATOR token (`management.endpoint.health.roles`). `/actuator/info` needs an ADMINISTRATOR token (401 without, 403 for other roles). Every other actuator endpoint (env, beans, configprops, heapdump, …) is off.
 - **API docs:** set `API_DOCS_ENABLED=true` to serve the OpenAPI description at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`. Off by default. When on, these pages are public, so keep it off in production. In Swagger UI, use **Authorize** with an access token from login to try endpoints.
 
 ## Collector recording
@@ -347,6 +353,18 @@ Owner decisions 2026-11-23. `GET /api/transaction/v1/statement/{accountNumber}?f
 - **Audit:** every statement generated is logged (`ACCOUNT_STATEMENT_GENERATED`, target `ACCOUNT` with the account number, and the dates).
 - **Template:** `reports/account-statement.jrxml` (JasperReports 7 format), compiled once on first use. Rows come from `StatementLine` beans through `JRBeanCollectionDataSource`; header and totals are parameters; the template runs no SQL.
 
+## Reports
+
+Owner decisions 2026-11-24. JSON at the paths below, or a PDF download with `/pdf` added (JasperReports, `reports/table-report.jrxml`, A4 landscape). **Administrators:** every branch, or one with `branchId`. **Agents:** their own branch only (another `branchId` → 403).
+
+- **Daily transactions** (`from`, `to` required): completed transactions per day, branch and type (count, amount, fees), then totals by type. A transaction belongs to its member's branch; a collector handover to the collector's branch.
+- **Collector collections** (`from`, `to` required): per collector per day (phone's `createdAt`), completed and failed payments; then the daily submissions in the range with payments, expected, counted, surplus, status and approver.
+- **Loan portfolio** (now): every loan being repaid with amount, total to repay, paid, outstanding, overdue and next due date; totals and the number of loans with something overdue.
+
+## Sign-in lockout
+
+Owner decisions 2026-11-24 (V47). **5 wrong passwords in a row** lock a staff or collector account; the next sign-in, even with the right password, gets 403 "This account is locked…". Only an **administrator** unlocks it (`POST /api/admin/v1/staff/{staffId}/unlock`); password reset doesn't. A correct password starts the count again. Staff responses show `lockedAt`. Attempts with an unknown staff ID aren't counted or stored.
+
 ## Audit log
 
 Business actions are recorded in the `audit_log` table (V22), in the same database transaction as the action, so an action and its entry are saved together or not at all. Each entry has the time, the acting staff code (empty for automated actions), the action, the target (`STAFF` with a staff code, or `MEMBER` with a member ID) and a short description. The table is append-only.
@@ -364,8 +382,11 @@ Business actions are recorded in the `audit_log` table (V22), in the same databa
 | `ACCOUNT_STATEMENT_GENERATED` | A staff member generated an account statement (target `ACCOUNT` with the account number, and the dates) |
 | `LOAN_PRODUCT_CREATED`, `LOAN_PRODUCT_UPDATED` | An administrator created or changed a loan product (target `LOAN_PRODUCT`, the terms or changed values) |
 | `LOAN_APPLICATION_SUBMITTED`, `LOAN_APPROVED`, `LOAN_REJECTED` | A loan application was entered, approved (amount, fee, interest, account paid into) or rejected (reason); target `LOAN_APPLICATION` |
+| `LOGIN_SUCCEEDED`, `LOGIN_FAILED` | Owner decisions 2026-11-24: a sign-in (which app), or a refused one (wrong password with the count, account locked, account not active). A failed attempt has no actor, since nobody was verified |
+| `STAFF_LOCKED`, `STAFF_UNLOCKED` | Locked after 5 wrong passwords; unlocked by an administrator |
+| `PERMISSION_DENIED` | A request refused with 403: actor (if signed in), target `REQUEST` (`METHOD /path`) and the reason. Written in its own transaction, so it's kept though the request failed |
 
-Passwords, reset codes and document contents are never written to the log. There's no endpoint for reading the log yet.
+Passwords, reset codes and document contents are never written to the log. **Reading:** administrators, `GET /api/admin/v1/audit-log` with filters. **Retention (owner, 2026-11-24):** entries are kept 7 years; `AuditLogRetentionJob` deletes older ones daily, and the database (V47) refuses any other change or deletion.
 
 ## Database migrations
 
@@ -405,6 +426,7 @@ Migrations are in `src/main/resources/db/migration` and are never edited once ap
 | V44 | Shortages no longer allowed: drops `collector_shortage_repayment` and its posting rules |
 | V45 | Collector records final on arrival: `transaction.received_at` (server time, backfilled) and `updated_at` (phone's last edit); an offline record's `recorded_at` moves into `created_at`, then `recorded_at` is dropped. `collector_correction` is kept as history |
 | V46 | Loans: product fee and guarantors count, `financial_settings.loan_min_membership_months`, application reviewer/purpose and statuses PENDING/APPROVED/REJECTED (one waiting per member), `loan_guarantor`, loan account member/interest/fee/payout link (one ACTIVE per member; the repayment account can be reused), installment `paid_at` and checks, `loan_repayment`, channel `SYSTEM`, amount parts `LOAN_PRINCIPAL`/`INTEREST`, posting rules for `LOAN_DISBURSEMENT` and `LOAN_REPAYMENT` |
+| V47 | Sign-in lockout (`staffs.failed_login_attempts`, `locked_at`); audit log entries older than 7 years can be deleted (still append-only otherwise); index on audit action |
 
 ## Status
 
@@ -427,6 +449,8 @@ Development follows the approved roadmap in the project docs, one increment at a
 | Collector recording | Savings deposits and share purchases, final on arrival (the app's 5-minute correction window), day summary, daily submission and approval with cash counted. No withdrawal requests: members withdraw at any branch's office |
 | Account statements | PDF for any date range (JasperReports), opening/closing balance, running balance, totals; audited |
 | Loans | Products, applications with guarantors, approval with payout (fee kept back), monthly installments taken daily from the account, statements and SMS (owner decisions 2026-11-24, V46) |
+| Reports | Daily transactions, collector collections, loan portfolio; JSON and PDF; admins all branches, agents own (owner decisions 2026-11-24) |
+| Audit log and lockout | Admin read endpoint with filters; 7-year retention job; sign-ins, failed sign-ins and 403s audited; 5 wrong passwords lock until an admin unlocks (V47) |
 
 ### Completed increments
 
@@ -461,4 +485,5 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Sessions and daily submission (PR #14, V39):** stored, rotating refresh tokens with stolen-token detection; `logout`; sessions ended at once on logout, daily approval, password reset, deactivation and role change. Collectors close the day with a submission of all unsubmitted payments; the branch's agent or an administrator approves with the cash counted (1015 → 1010, surplus to 2030; no shortages since 2026-11-23); approval signs the collector out until tomorrow.
 - **Collector records final on arrival (PR #14, V45, 2026-11-23):** the app keeps a payment for 5 minutes and corrects it there; the backend applies it on arrival with the phone's `createdAt`/`updatedAt` and its own `receivedAt`; correction endpoint removed; a payment from a day already submitted → 409.
 - **Account statements (PR #14, 2026-11-23):** PDF statements with JasperReports for any date range: opening and closing balance, running balance, money in and out; administrators any member, agents own branch; audited.
+- **Reports, audit and lockout (PR #14, V47, 2026-11-24):** daily transactions, collector collections and loan portfolio reports as JSON and PDF (admins all branches, agents own); audit log reading with filters and 7-year retention; sign-ins, failed sign-ins and 403s audited; 5 wrong passwords lock an account until an administrator unlocks it; health status open for Railway.
 - **Loans (PR #14, V46, 2026-11-24):** admin-managed products (flat yearly interest, processing fee, guarantors count); applications by agents or admins for any branch; admin approval pays out at once minus the fee; monthly installments taken daily from the member's account (partial allowed, overdue retried, proportional ledger split); SMS, statements and audit.

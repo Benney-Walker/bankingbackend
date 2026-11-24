@@ -30,5 +30,13 @@ public enum AuditAction {
     LOAN_APPLICATION_SUBMITTED,
     /** An administrator approved a loan; it was paid out at once. */
     LOAN_APPROVED,
-    LOAN_REJECTED
+    LOAN_REJECTED,
+    /** Owner decisions 2026-11-24: sign-ins, lockouts and permission refusals are audited. */
+    LOGIN_SUCCEEDED,
+    LOGIN_FAILED,
+    /** Locked after 5 wrong passwords in a row; only an administrator unlocks it. */
+    STAFF_LOCKED,
+    STAFF_UNLOCKED,
+    /** A request refused with 403. */
+    PERMISSION_DENIED
 }

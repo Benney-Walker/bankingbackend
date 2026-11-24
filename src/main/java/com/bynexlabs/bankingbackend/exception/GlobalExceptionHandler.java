@@ -1,14 +1,17 @@
 package com.bynexlabs.bankingbackend.exception;
 
 import com.bynexlabs.bankingbackend.Utility.KycUploadRules;
+import com.bynexlabs.bankingbackend.service.PermissionDeniedRecorder;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -35,10 +38,29 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final int LOCK_AFTER = 5;
+
+    /** Audits 403s (owner decision 2026-11-24). Absent in plain unit tests that build the handler with new. */
+    private PermissionDeniedRecorder permissionDeniedRecorder;
+
+    @Autowired(required = false)
+    void setPermissionDeniedRecorder(PermissionDeniedRecorder permissionDeniedRecorder) {
+        this.permissionDeniedRecorder = permissionDeniedRecorder;
+    }
+
+    private void recordRefusal(HttpServletRequest request, String reason) {
+        if (permissionDeniedRecorder != null) {
+            permissionDeniedRecorder.record(request, reason);
+        }
+    }
+
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<Map<String, Object>> handleApiException(ApiException ex, HttpServletRequest request) {
         // Expected outcomes (duplicates, missing records), so they stay out of the normal log level.
         log.debug("{} on {} {}: {}", ex.getStatus().value(), request.getMethod(), request.getRequestURI(), ex.getMessage());
+        if (ex.getStatus() == HttpStatus.FORBIDDEN) {
+            recordRefusal(request, ex.getMessage());
+        }
         return error(ex.getStatus(), ex.getMessage(), request);
     }
 
@@ -49,12 +71,21 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.UNAUTHORIZED, "Invalid ID or password", request);
     }
 
+    // Owner decisions 2026-11-24: 5 wrong passwords in a row lock the account until an
+    // administrator unlocks it. Already audited as a failed sign-in, so not as a refusal too.
+    @ExceptionHandler(LockedException.class)
+    public ResponseEntity<Map<String, Object>> handleLocked(HttpServletRequest request) {
+        return error(HttpStatus.FORBIDDEN, "This account is locked after " + LOCK_AFTER
+                + " wrong passwords. Ask an administrator to unlock it", request);
+    }
+
     // @PreAuthorize denials are thrown inside the controller call, so they arrive here rather than
     // at CustomAccessDeniedHandler. Without this mapping the catch-all would turn them into 500s.
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(HttpServletRequest request) {
         String principal = request.getUserPrincipal() != null ? request.getUserPrincipal().getName() : "anonymous";
         log.warn("Access denied for '{}' on {} {}", principal, request.getMethod(), request.getRequestURI());
+        recordRefusal(request, "Not allowed for this role");
         return error(HttpStatus.FORBIDDEN, "You do not have permission to perform this action", request);
     }
 

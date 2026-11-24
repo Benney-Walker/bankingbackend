@@ -31,6 +31,31 @@ public interface StaffRepo extends JpaRepository<Staff, UUID> {
     @Query("update Staff s set s.registeredDeviceId = :deviceId, s.deviceRegisteredAt = :at where s.id = :id and s.registeredDeviceId is null")
     int registerDevice(@Param("id") UUID id, @Param("deviceId") String deviceId, @Param("at") LocalDateTime at);
 
+    /**
+     * Counts a wrong password and locks the account when it reaches maxAttempts (V47). Does
+     * nothing to an account that's already locked.
+     */
+    @Modifying
+    @Query("""
+            update Staff s set s.failedLoginAttempts = s.failedLoginAttempts + 1,
+                s.lockedAt = case when s.failedLoginAttempts + 1 >= :maxAttempts then :now else s.lockedAt end
+            where s.id = :id and s.lockedAt is null
+            """)
+    int recordFailedLogin(@Param("id") UUID id, @Param("maxAttempts") int maxAttempts, @Param("now") LocalDateTime now);
+
+    @Query("select s.failedLoginAttempts from Staff s where s.id = :id")
+    int findFailedLoginAttempts(@Param("id") UUID id);
+
+    /** A correct password starts the count again. */
+    @Modifying
+    @Query("update Staff s set s.failedLoginAttempts = 0 where s.id = :id and s.failedLoginAttempts > 0 and s.lockedAt is null")
+    int clearFailedLogins(@Param("id") UUID id);
+
+    /** Unlocks the account. Returns 1 when it was locked. */
+    @Modifying
+    @Query("update Staff s set s.failedLoginAttempts = 0, s.lockedAt = null where s.id = :id and s.lockedAt is not null")
+    int unlock(@Param("id") UUID id);
+
     /** Clears a collector's registered phone. Returns 1 when one was registered. */
     @Modifying
     @Query("update Staff s set s.registeredDeviceId = null, s.deviceRegisteredAt = null where s.id = :id and s.registeredDeviceId is not null")

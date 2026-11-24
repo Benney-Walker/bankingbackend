@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generic table report (owner decisions 2026-11-24): A4 landscape, up to 8 columns. Each row is a
+     ReportRow bean (JRBeanCollectionDataSource) with a kind: SECTION (a heading in c1), HEADER (column
+     names), ROW or TOTAL; columns 1-3 left-aligned, 4-8 right-aligned. No SQL. Rendered by ReportPdf. -->
+<jasperReport name="TableReport" language="java" columnCount="1" pageWidth="842" pageHeight="595" orientation="Landscape" whenNoDataType="AllSectionsNoDetail" columnWidth="782" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" uuid="1710b0b3-061d-4df8-b910-7e1b7aed5c0a">
+	<style name="Base" default="true" fontName="DejaVu Sans" fontSize="9.0"/>
+	<parameter name="creditUnionName" class="java.lang.String"/>
+	<parameter name="reportTitle" class="java.lang.String"/>
+	<parameter name="reportSubtitle" class="java.lang.String"/>
+	<parameter name="generatedAt" class="java.lang.String"/>
+	<field name="kind" class="java.lang.String"/>
+	<field name="c1" class="java.lang.String"/>
+	<field name="c2" class="java.lang.String"/>
+	<field name="c3" class="java.lang.String"/>
+	<field name="c4" class="java.lang.String"/>
+	<field name="c5" class="java.lang.String"/>
+	<field name="c6" class="java.lang.String"/>
+	<field name="c7" class="java.lang.String"/>
+	<field name="c8" class="java.lang.String"/>
+	<title height="80">
+		<element kind="textField" uuid="f53cf132-8413-46fb-b5bf-b265b9ad52cb" x="0" y="0" width="782" height="22" fontSize="15.0" bold="true" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA[$P{creditUnionName}]]></expression>
+		</element>
+		<element kind="textField" uuid="b68cd6b8-d43e-4ccb-b115-dafb1b1bca04" x="0" y="22" width="782" height="18" fontSize="12.0" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA[$P{reportTitle}]]></expression>
+		</element>
+		<element kind="textField" uuid="a0647208-2f1e-4a7c-8a53-306fe6111a6d" x="0" y="40" width="782" height="16" hTextAlign="Center" vTextAlign="Middle" blankWhenNull="true">
+			<expression><![CDATA[$P{reportSubtitle}]]></expression>
+		</element>
+		<element kind="textField" uuid="1a533cd3-eab6-41db-88f7-7498ef2617d8" x="0" y="56" width="782" height="14" fontSize="7.0" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA["Generated " + $P{generatedAt}]]></expression>
+		</element>
+		<element kind="line" uuid="2f3779ab-fb8f-4922-8935-da73af4528b8" x="0" y="74" width="782" height="1"/>
+	</title>
+	<detail>
+		<band height="18">
+			<element kind="textField" uuid="ac040421-621b-4b42-a691-1401c1705a5d" x="0" y="0" width="782" height="18" fontSize="10.0" bold="true" vTextAlign="Bottom" blankWhenNull="true">
+				<printWhenExpression><![CDATA["SECTION".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c1}]]></expression>
+				<box topPadding="4"/>
+			</element>
+			<element kind="textField" uuid="c5bf9776-2e3f-430f-a39d-d0892e035c56" x="0" y="0" width="110" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c1}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="51d68ac2-c5d3-4f1b-9ad1-9464524cc082" x="0" y="0" width="110" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c1}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="d500d84e-c765-486c-980b-344d59f00b8c" x="0" y="0" width="110" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c1}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+			<element kind="textField" uuid="ee6361ec-c93a-461b-a9d6-42be69285029" x="110" y="0" width="120" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c2}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="0e5f54de-9d7e-406f-956c-226808e75e47" x="110" y="0" width="120" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c2}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="ac1a73a9-0c11-4951-b573-c8d0c9ebcf88" x="110" y="0" width="120" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c2}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+			<element kind="textField" uuid="edffb737-071e-4897-9211-9586c700dc23" x="230" y="0" width="110" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c3}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="34b007f9-bca2-4850-92fb-c98cd784ea7a" x="230" y="0" width="110" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c3}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="75011014-1596-41e1-879d-5a134f7d1277" x="230" y="0" width="110" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c3}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+			<element kind="textField" uuid="4042f1b9-9d46-4748-a662-398e15f8e32b" x="340" y="0" width="88" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c4}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="9d2243a8-3af0-4af7-b46b-098b825d1e80" x="340" y="0" width="88" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c4}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="86b0e750-6e92-4ef3-a769-438e61051a81" x="340" y="0" width="88" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c4}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+			<element kind="textField" uuid="78dfffe2-6381-446f-854a-9d0cd5423a4d" x="428" y="0" width="88" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c5}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="21abd69b-a30b-45ee-ac14-ec8bd326f21a" x="428" y="0" width="88" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c5}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="b82b52e0-2b60-4e21-a1ae-28475e9f6f10" x="428" y="0" width="88" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c5}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+			<element kind="textField" uuid="f49a6046-65ed-4b19-a410-7906113949e6" x="516" y="0" width="88" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c6}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="ae8924c0-44d0-4e47-9f4e-8156b4489a81" x="516" y="0" width="88" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c6}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="b1d6455c-dd8e-4d17-b90b-54946f26cbfc" x="516" y="0" width="88" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c6}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+			<element kind="textField" uuid="29d89a3e-78cc-493b-9a8f-b5cb06c1a63f" x="604" y="0" width="89" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c7}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="a81ab007-3d5d-4213-81c8-0523e05cc498" x="604" y="0" width="89" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c7}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="83116527-2097-42b0-9b7f-813add56734d" x="604" y="0" width="89" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c7}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+			<element kind="textField" uuid="f18aa80b-bd95-4526-8244-4a7408762a82" x="693" y="0" width="89" height="18" fontSize="8.0" bold="true" mode="Opaque" backcolor="#EEEEEE" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["HEADER".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c8}]]></expression>
+				<box leftPadding="3" rightPadding="3"><pen lineWidth="0.5" lineColor="#999999"/></box>
+			</element>
+			<element kind="textField" uuid="613389f2-7c92-4e9f-b9a9-3b83dc5d1c8d" x="693" y="0" width="89" height="18" fontSize="8.0" textAdjust="StretchHeight" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["ROW".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c8}]]></expression>
+				<box leftPadding="3" rightPadding="3"><bottomPen lineWidth="0.25" lineColor="#CCCCCC"/></box>
+			</element>
+			<element kind="textField" uuid="f87ebfd5-0e38-4f3e-be82-a6461419aa81" x="693" y="0" width="89" height="18" fontSize="8.0" bold="true" vTextAlign="Middle" blankWhenNull="true" hTextAlign="Right">
+				<printWhenExpression><![CDATA["TOTAL".equals($F{kind})]]></printWhenExpression>
+				<expression><![CDATA[$F{c8}]]></expression>
+				<box leftPadding="3" rightPadding="3"><topPen lineWidth="0.5" lineColor="#333333"/></box>
+			</element>
+		</band>
+	</detail>
+	<pageFooter height="18">
+		<element kind="textField" uuid="5ba6f756-9613-4793-9e87-78a5e5eba11f" x="0" y="2" width="600" height="14" fontSize="7.0" vTextAlign="Middle">
+			<expression><![CDATA[$P{creditUnionName} + " - " + $P{reportTitle}]]></expression>
+		</element>
+		<element kind="textField" uuid="043c0399-65f7-44ed-b5c6-f1efcb3fe04e" x="600" y="2" width="147" height="14" fontSize="7.0" hTextAlign="Right" vTextAlign="Middle">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" uuid="41becd0f-9316-423c-99b4-07d2f6e1aa43" x="747" y="2" width="35" height="14" fontSize="7.0" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+	<summary height="26">
+		<element kind="textField" uuid="bd17987d-5966-40c7-90ef-ac77c738a35d" x="0" y="6" width="782" height="16" italic="true" hTextAlign="Center" vTextAlign="Middle">
+			<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() == 0]]></printWhenExpression>
+			<expression><![CDATA["Nothing to report for this selection"]]></expression>
+		</element>
+	</summary>
+</jasperReport>

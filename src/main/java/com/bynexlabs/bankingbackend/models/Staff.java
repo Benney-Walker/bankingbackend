@@ -83,6 +83,17 @@ public class Staff {
     @Column(name = "device_registered_at", insertable = false, updatable = false)
     private LocalDateTime deviceRegisteredAt;
 
+    /**
+     * Wrong passwords in a row (V47, owner decisions 2026-11-24). Written only by
+     * LoginAttemptService's bulk updates, like sessionsValidAfter.
+     */
+    @Column(name = "failed_login_attempts", insertable = false, updatable = false)
+    private int failedLoginAttempts;
+
+    /** Set when the 5th wrong password in a row locks the account; cleared only by an administrator. */
+    @Column(name = "locked_at", insertable = false, updatable = false)
+    private LocalDateTime lockedAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "branch", nullable = false, updatable = false)
     private Branch branch;

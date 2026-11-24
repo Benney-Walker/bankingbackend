@@ -13,5 +13,7 @@ public enum AuditTargetType {
     /** target_id is the loan product ID. */
     LOAN_PRODUCT,
     /** target_id is the loan application ID. */
-    LOAN_APPLICATION
+    LOAN_APPLICATION,
+    /** target_id is the refused request, as "METHOD /path". */
+    REQUEST
 }

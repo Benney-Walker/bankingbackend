@@ -77,8 +77,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         // API docs: served only when API_DOCS_ENABLED=true (otherwise 404).
                         .requestMatchers(API_DOCS_PATHS).permitAll()
-                        // Actuator exposes internal details: administrators only, never public
-                        // (owner decision 2026-11-07). Keep in step with management.endpoints.web.base-path.
+                        // Actuator exposes internal details: administrators only (owner decision 2026-11-07).
+                        // Keep in step with management.endpoints.web.base-path. The one exception (owner,
+                        // 2026-11-24, recommended option): the host's health check (Railway) needs the
+                        // status without a token. Only UP/DOWN is shown; details stay admin-only
+                        // (management.endpoint.health.roles).
+                        .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/actuator/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/admin/**").hasAuthority(Roles.ADMINISTRATOR.name())
                         .requestMatchers("/api/member/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
@@ -94,6 +98,8 @@ public class SecurityConfig {
                         // Loans (owner decisions 2026-11-24): agents and admins apply and read;
                         // product changes and approvals are under /api/admin.
                         .requestMatchers("/api/loan/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
+                        // Reports (owner decisions 2026-11-24): administrators all branches, agents their own.
+                        .requestMatchers("/api/report/**").hasAnyAuthority(Roles.ADMINISTRATOR.name(), Roles.AGENT.name())
                         // The collector app (owner decision 2026-11-14): collector accounts only.
                         .requestMatchers("/api/collector/**").hasAuthority(Roles.COLLECTOR.name())
                         .anyRequest().authenticated()

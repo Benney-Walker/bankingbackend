@@ -74,9 +74,9 @@ public class StaffService {
 
     private final OutboxService outboxService;
 
-    /** The server's public address (Railway), for the password reset link in the welcome SMS. */
-    @Value("${app.public-base-url}")
-    String publicBaseUrl;
+    /** The password reset website's page (owner decision 2026-11-28), linked from the welcome SMS. */
+    @Value("${app.password-reset-url}")
+    String passwordResetUrl;
 
     private static final SecureRandom PASSWORD_RANDOM = new SecureRandom();
 
@@ -344,23 +344,25 @@ public class StaffService {
                         .staffId(newStaffId)
                         .phoneNumber(staff.getPhoneNumber())
                         .message(welcomeSms(staff.getFirstName(), branch.getName(), newStaffId,
-                                passwordResetLink(publicBaseUrl, newStaffId)))
+                                passwordResetLink(passwordResetUrl, newStaffId)))
                         .build());
         return ResponseEntity.ok().build();
     }
 
-    // Owner-chosen wording, 2026-11-15; the reset page link replaced "through password reset"
-    // on 2026-11-24.
+    // Owner-chosen wording, 2026-11-15; the reset link replaced "through password reset" on
+    // 2026-11-24. Since 2026-11-28 it points at the separate password reset website.
     static String welcomeSms(String firstName, String branchName, String staffId, String resetLink) {
         return "Hello " + firstName.trim() + ", you've been added as staff at " + branchName.trim()
                 + " branch. Your staff ID is " + staffId
                 + ". Set your password at " + resetLink + " before you sign in.";
     }
 
-    /** The server's password reset page with the staff ID filled in (owner decision 2026-11-24). */
-    static String passwordResetLink(String baseUrl, String staffId) {
-        String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        return base + "/password-reset?staffId=" + staffId;
+    /**
+     * The password reset website's page with the staff ID filled in: PASSWORD_RESET_URL plus
+     * ?staffId=<id> (or &staffId= when the URL already has a query).
+     */
+    static String passwordResetLink(String resetUrl, String staffId) {
+        return resetUrl + (resetUrl.contains("?") ? "&" : "?") + "staffId=" + staffId;
     }
 
     // 32 random bytes (256 bits) as 43 URL-safe characters, within BCrypt's 72-byte limit.

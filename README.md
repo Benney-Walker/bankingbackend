@@ -36,8 +36,8 @@ Settings live in `src/main/resources/application.properties` as environment-vari
 | Outbox | `OUTBOX_RETRY_INTERVAL_MS` (optional, default `5000`): how often unsent RabbitMQ messages are retried |
 | Audit log | `AUDIT_RETENTION_CRON` (optional, default `0 15 4 * * *`, Africa/Accra): when entries older than 7 years are deleted |
 | Loans | `LOAN_REPAYMENT_CRON` (optional, default `0 30 23 * * *`, Africa/Accra): when due loan installments are taken from members' accounts each day |
-| Statements | `CREDIT_UNION_NAME` (default `Credit Union`, a placeholder): the name printed at the top of account statements, reports and the password reset page |
-| Password reset page | `PUBLIC_BASE_URL` (default `http://localhost:8080`): the server's public address (the Railway URL), used for the reset link in the new-staff SMS. **Set it on Railway** |
+| Statements | `CREDIT_UNION_NAME` (default `Credit Union`, a placeholder): the name printed at the top of account statements and reports |
+| Password reset website | `PASSWORD_RESET_URL` (default `http://localhost:5173/password-reset`): the separate reset website's page; the new-staff SMS links to it with `?staffId=` added. **Set it on Railway once the site is live**, and add the site's origin to `CORS_ALLOWED_ORIGINS` |
 | Collector payments | `COLLECTOR_FINALIZE_INTERVAL_MS` (optional, default `60000`): how often any payment still `PENDING` from the old 10-minute window is applied (payments are now applied on arrival) |
 | CORS | `CORS_ALLOWED_ORIGINS` (optional; comma-separated browser origins, no trailing slash. Defaults to the local dev server and the current Vercel app) |
 | API docs | `API_DOCS_ENABLED` (optional, default `false`): serve `/v3/api-docs` and Swagger UI. Leave off in production |
@@ -87,7 +87,6 @@ Access is set by URL in `SecurityConfig`:
 | POST | `/api/auth/v1/password-reset/request-code` | Body `{ "staffId" }`. Texts a 6-digit code (Vynfy) to an ACTIVE staff member. Unknown or inactive staff ID → 400; again within a minute → 409; SMS failure → 500 |
 | POST | `/api/auth/v1/password-reset/confirm-code` | Body `{ "staffId", "code" }`. Code valid 10 minutes, 3 wrong attempts. Returns a short-lived reset token (`JWT_RESET_EXPIRATION`). Wrong or expired code → 400 |
 | PUT | `/api/auth/v1/password-reset/new-password` | Body `{ "newPassword", "resetToken" }`. Password 8–72 characters, can't be the current one (409). Invalid reset token → 401 |
-| GET | `/password-reset?staffId=` | **Web page** (Thymeleaf), public: the same three reset steps in a browser. Linked from the new-staff SMS with the staff ID filled in. See "Password reset page" |
 | POST | `/api/staff/v1/add-staff` | ADMINISTRATOR only. Create a staff member or collector in a branch (`branchId`); roles `ADMINISTRATOR`, `AGENT`, `COLLECTOR`. `COLLECTOR` can't be combined with another role (400); a branch can have only one active agent (409). **No password** (owner decision 2026-11-15): the backend sets a random one nobody sees, and the new staff member is texted their staff ID; they set their own password through password reset before signing in. See "Adding staff" |
 | GET | `/api/branch/v1/all` | ADMINISTRATOR and AGENT. Every branch as `[{ "id", "name" }]` (owner decision 2026-11-16), by name, for add-staff and member registration |
 | GET | `/api/staff/v1/all-staff` | Staff list: an agent sees their own branch's staff, an administrator everyone. Not paginated yet |
@@ -194,7 +193,7 @@ Owner decisions 2026-11-15 (desktop spec section 16):
 
 1. `POST /api/staff/v1/add-staff` takes no `password`. The backend stores a BCrypt hash of a random 256-bit password that nobody sees or receives, so the account can't be signed into yet.
 2. After the staff member is saved, they're texted (through the outbox and `staff_sms_queue`, sent only after the save commits; 3 retries, then `staff_sms_dead_letter_queue`):
-   *"Hello Ama, you've been added as staff at Tarkwa branch. Your staff ID is 900123. Set your password at https://your-app.up.railway.app/password-reset?staffId=900123 before you sign in."* (link added 2026-11-24; built from `PUBLIC_BASE_URL`)
+   *"Hello Ama, you've been added as staff at Tarkwa branch. Your staff ID is 900123. Set your password at https://reset.example.com/password-reset?staffId=900123 before you sign in."* (link added 2026-11-24; built from `PASSWORD_RESET_URL`, the separate reset website)
 3. They set their password with the reset flow (`request-code` → `confirm-code` → `new-password`), then sign in.
 4. `GET /api/branch/v1/all` lists branches for the branch step.
 
@@ -363,15 +362,17 @@ Owner decisions 2026-11-24. JSON at the paths below, or a PDF download with `/pd
 - **Collector collections** (`from`, `to` required): per collector per day (phone's `createdAt`), completed and failed payments; then the daily submissions in the range with payments, expected, counted, surplus, status and approver.
 - **Loan portfolio** (now): every loan being repaid with amount, total to repay, paid, outstanding, overdue and next due date; totals and the number of loans with something overdue.
 
-## Password reset page
+## Password reset website (separate, to be built)
 
-Owner decision 2026-11-24. A public, server-rendered page at **`/password-reset`** (Thymeleaf, `templates/password-reset.html`) for staff and collectors, linked from the new-staff SMS with the staff ID filled in (`?staffId=900123`). It uses the existing reset pipeline in the same three steps:
+Owner decision 2026-11-28: password reset gets its own website, built in a separate session. The backend's own page (2026-11-24, commit `c572cb3`) was removed; the backend keeps the reset API and the new-staff SMS links to the site. The full contract for the website is the project doc **"Password Reset Website — Backend Contract"**. In short:
 
-1. **Staff ID** → a 6-digit code is texted to the phone on the staff record (once a minute at most).
-2. **Code** → checked (10 minutes, 3 tries); "Send a new code" is on this step.
-3. **New password** typed twice (8–72 characters, not the current one) → saved; every session ends.
-
-Errors from the pipeline are shown on the page. Nothing is kept on the server between steps: the staff ID and the short-lived reset token travel in hidden form fields. The page has no scripts and isn't indexed by search engines. It doesn't unlock a locked account (only an administrator does), and says so at the end. The API endpoints under `/api/auth/v1/password-reset/` are unchanged.
+- **Entry:** the new-staff SMS links to `PASSWORD_RESET_URL?staffId=900123`; the site fills in the staff ID. People can also open it directly.
+- **CORS:** add the site's origin to `CORS_ALLOWED_ORIGINS`. No access token is needed (`/api/auth/**` is public).
+- **Step 1:** `POST /api/auth/v1/password-reset/request-code` `{ "staffId" }` → 200 `{ "message" }`; a 6-digit code is texted to the phone on the staff record. One code a minute (409), unknown or inactive staff ID → 400, SMS failure → 500.
+- **Step 2:** `POST /api/auth/v1/password-reset/confirm-code` `{ "staffId", "code" }` → 200 with the **reset token as plain text**. The code lasts 10 minutes, works once, 3 wrong tries; then request a new one. Wrong or expired → 400 `Invalid or expired reset code`.
+- **Step 3:** `PUT /api/auth/v1/password-reset/new-password` `{ "newPassword", "resetToken" }` → 200, empty. 8–72 characters, not the current password (409); expired token → 401 (start again). Every session ends.
+- A reset doesn't unlock a locked account; only an administrator does.
+- Errors: `{ timestamp, status, error, message, path }`; validation errors put field → message in `message` and `errors`.
 
 ## Sign-in lockout
 
@@ -497,6 +498,6 @@ Development follows the approved roadmap in the project docs, one increment at a
 - **Sessions and daily submission (PR #14, V39):** stored, rotating refresh tokens with stolen-token detection; `logout`; sessions ended at once on logout, daily approval, password reset, deactivation and role change. Collectors close the day with a submission of all unsubmitted payments; the branch's agent or an administrator approves with the cash counted (1015 → 1010, surplus to 2030; no shortages since 2026-11-23); approval signs the collector out until tomorrow.
 - **Collector records final on arrival (PR #14, V45, 2026-11-23):** the app keeps a payment for 5 minutes and corrects it there; the backend applies it on arrival with the phone's `createdAt`/`updatedAt` and its own `receivedAt`; correction endpoint removed; a payment from a day already submitted → 409.
 - **Account statements (PR #14, 2026-11-23):** PDF statements with JasperReports for any date range: opening and closing balance, running balance, money in and out; administrators any member, agents own branch; audited.
-- **Password reset page (PR #14, 2026-11-24):** public Thymeleaf page at `/password-reset` running the existing three reset steps; the new-staff SMS links to it with the staff ID filled in (`PUBLIC_BASE_URL`).
+- **Password reset link (PR #14, 2026-11-24/28):** the new-staff SMS links to the separate password reset website (`PASSWORD_RESET_URL?staffId=`). A backend Thymeleaf page was added on 24 Nov and removed on 28 Nov; the website will be built in a separate session against the documented reset API.
 - **Reports, audit and lockout (PR #14, V47, 2026-11-24):** daily transactions, collector collections and loan portfolio reports as JSON and PDF (admins all branches, agents own); audit log reading with filters and 7-year retention; sign-ins, failed sign-ins and 403s audited; 5 wrong passwords lock an account until an administrator unlocks it; health status open for Railway.
 - **Loans (PR #14, V46, 2026-11-24):** admin-managed products (flat yearly interest, processing fee, guarantors count); applications by agents or admins for any branch; admin approval pays out at once minus the fee; monthly installments taken daily from the member's account (partial allowed, overdue retried, proportional ledger split); SMS, statements and audit.

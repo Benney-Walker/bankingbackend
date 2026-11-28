@@ -75,8 +75,6 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
-                        // The password reset page linked from the new-staff SMS (owner decision 2026-11-24).
-                        .requestMatchers("/password-reset", "/password-reset/**").permitAll()
                         // API docs: served only when API_DOCS_ENABLED=true (otherwise 404).
                         .requestMatchers(API_DOCS_PATHS).permitAll()
                         // Actuator exposes internal details: administrators only (owner decision 2026-11-07).

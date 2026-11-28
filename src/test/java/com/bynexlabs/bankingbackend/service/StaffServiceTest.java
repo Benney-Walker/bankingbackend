@@ -81,7 +81,7 @@ class StaffServiceTest {
     @BeforeEach
     void setUp() {
         staffService = new StaffService(staffRepo, staffRolesRepo, idGenerator, passwordEncoder, auditLogService, branchRepo, sessionService, outboxService);
-        staffService.publicBaseUrl = "https://bank.example/";
+        staffService.passwordResetUrl = "https://reset.example/password-reset";
     }
 
     private StaffDetails newStaff(List<String> roles) {
@@ -170,10 +170,16 @@ class StaffServiceTest {
         verify(outboxService).enqueue(eq(RabbitMQConfig.EXCHANGE_NAME), eq(RabbitMQConfig.STAFF_SMS_ROUTING_KEY), sms.capture());
         assertThat(sms.getValue().getStaffId()).isEqualTo("900100");
         assertThat(sms.getValue().getPhoneNumber()).isEqualTo("0201234567");
-        // Owner decision 2026-11-24: the SMS links to the server's reset page with the staff ID filled in.
+        // Owner decisions 2026-11-24/28: the SMS links to the password reset website with the staff ID filled in.
         assertThat(sms.getValue().getMessage()).isEqualTo("Hello Kofi, you've been added as staff at Tarkwa branch. "
-                + "Your staff ID is 900100. Set your password at https://bank.example/password-reset?staffId=900100 "
+                + "Your staff ID is 900100. Set your password at https://reset.example/password-reset?staffId=900100 "
                 + "before you sign in.");
+    }
+
+    @Test
+    void resetLinkKeepsAnExistingQuery() {
+        assertThat(StaffService.passwordResetLink("https://reset.example/?from=sms", "900100"))
+                .isEqualTo("https://reset.example/?from=sms&staffId=900100");
     }
 
     // Each new staff member gets a different random password.
